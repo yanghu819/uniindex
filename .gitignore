@@ -1,0 +1,12 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+
+artifacts/cache/
+artifacts/datasets/
+artifacts/models/
+artifacts/tmp/
+runs/
+outputs/
+
