@@ -49,7 +49,10 @@ class UnifiedDenoiser(nn.Module):
             norm_first=True,
             activation="gelu",
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers, enable_nested_tensor=False)
+        try:
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers, enable_nested_tensor=False)
+        except TypeError:
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
         self.norm = nn.LayerNorm(d_model)
         self.head = nn.Linear(d_model, vocab_size)
         nn.init.zeros_(self.head.weight)
