@@ -1,0 +1,39 @@
+[project]
+name = "uniindex"
+version = "0.1.0"
+description = "Toy unified-index multimodal flow model"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "huggingface-hub==0.35.3",
+  "numpy==2.3.4",
+  "pillow==11.3.0",
+  "pyyaml==6.0.3",
+  "safetensors==0.6.2",
+  "torch==2.6.0",
+  "torchvision==0.21.0",
+  "tqdm==4.67.1",
+  "transformers==4.57.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.2",
+  "ruff==0.13.1",
+]
+
+[project.scripts]
+uniindex = "uniindex.cli:main"
+
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: uniindex
+Version: 0.1.0
+Summary: Toy unified-index multimodal flow model
+Requires-Python: <3.12,>=3.11
+Requires-Dist: huggingface-hub==0.35.3
+Requires-Dist: numpy==2.3.4
+Requires-Dist: pillow==11.3.0
+Requires-Dist: pyyaml==6.0.3
+Requires-Dist: safetensors==0.6.2
+Requires-Dist: torch==2.6.0
+Requires-Dist: torchvision==0.21.0
+Requires-Dist: tqdm==4.67.1
+Requires-Dist: transformers==4.57.1
+Provides-Extra: dev
+Requires-Dist: pytest==8.4.2; extra == "dev"
+Requires-Dist: ruff==0.13.1; extra == "dev"

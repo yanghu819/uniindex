@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+
+.cache/
+data/
+artifacts/
+models/
+runs/
+logs/
+
+*.pyc
+*.pyo
+*.pyd

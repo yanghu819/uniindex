@@ -1,0 +1,61 @@
+project:
+  name: uniindex
+
+paths:
+  data_dir: data
+  artifacts_dir: artifacts
+  models_dir: models
+  runs_dir: runs
+  logs_dir: logs
+  cache_dir: .cache
+
+tokenizer:
+  kind: emu3p5
+  model_name: BAAI/Emu3.5-VisionTokenizer
+  trust_remote_code: true
+  image_size: 256
+  device: cuda
+  dtype: bfloat16
+
+dataset:
+  name: mnist
+  train_limit: null
+  test_limit: null
+
+labels:
+  values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+model:
+  d_model: 256
+  n_heads: 8
+  n_layers: 6
+  mlp_ratio: 4
+  dropout: 0.0
+
+train:
+  seed: 42
+  device: cuda
+  gpu_index: 0
+  mixed_precision: null
+  batch_size: 64
+  eval_batch_size: 64
+  num_workers: 4
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  stage1_steps: 5000
+  stage2_steps: 2000
+  log_every: 20
+  save_every: 250
+  joint_weight: 0.5
+  label_weight: 0.5
+
+sampling:
+  steps: 8
+  temperature: 1.0
+
+eval:
+  num_unconditional_samples: 64
+  classifier_epochs: 2
+  classifier_batch_size: 128
+  classifier_lr: 0.001
