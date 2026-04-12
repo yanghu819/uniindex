@@ -10,6 +10,7 @@ export TRANSFORMERS_CACHE="$ROOT/.cache/huggingface/transformers"
 export TORCH_HOME="$ROOT/.cache/torch"
 export XDG_CACHE_HOME="$ROOT/.cache/xdg"
 export MPLCONFIGDIR="$ROOT/.cache/matplotlib"
+export PATH="$ROOT/.cache/uv-bin:$PATH"
 
 mkdir -p \
   "$UV_CACHE_DIR" \
