@@ -13,6 +13,12 @@ export XDG_CACHE_HOME="$ROOT/.cache/xdg"
 export MPLCONFIGDIR="$ROOT/.cache/matplotlib"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
+if ! command -v uv >/dev/null 2>&1; then
+  export UV_UNMANAGED_INSTALL="$ROOT/.cache/uv-bin"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$ROOT/.cache/uv-bin:$PATH"
+fi
+
 
 CONFIG="configs/default.yaml"
 if [[ "$MODE" == "smoke" ]]; then
