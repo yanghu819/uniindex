@@ -19,6 +19,12 @@ mkdir -p \
   "$XDG_CACHE_HOME" \
   "$MPLCONFIGDIR"
 
+if ! command -v uv >/dev/null 2>&1; then
+  export UV_UNMANAGED_INSTALL="$ROOT/.cache/uv-bin"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$ROOT/.cache/uv-bin:$PATH"
+fi
+
 if [[ ! -d "$ROOT/.venv" ]]; then
   uv venv "$ROOT/.venv"
 fi
