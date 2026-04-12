@@ -15,3 +15,5 @@ logs/
 *.pyc
 *.pyo
 *.pyd
+
+*.egg-info/
