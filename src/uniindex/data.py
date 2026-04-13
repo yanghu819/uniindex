@@ -43,12 +43,26 @@ def _prepare_image(image: Image.Image, image_size: int) -> Image.Image:
     return rgb
 
 
+def _slug(value: str | None) -> str:
+    raw = value or "none"
+    return "".join(ch.lower() if ch.isalnum() else "-" for ch in raw).strip("-")
+
+
+def _artifact_namespace(config: ProjectConfig) -> str:
+    tok = config.tokenizer
+    model_slug = _slug(tok.model_name or tok.kind)
+    train_limit = "all" if config.dataset.train_limit is None else str(config.dataset.train_limit)
+    test_limit = "all" if config.dataset.test_limit is None else str(config.dataset.test_limit)
+    compact = "1" if tok.compact_vocab else "0"
+    return f"{tok.kind}-{model_slug}-img{tok.image_size}-train{train_limit}-test{test_limit}-compact{compact}"
+
+
 def tokenizer_state_path(config: ProjectConfig) -> Path:
-    return config.paths.artifacts_dir / "tokenized" / "tokenizer_state.pt"
+    return config.paths.artifacts_dir / "tokenized" / _artifact_namespace(config) / "tokenizer_state.pt"
 
 
 def split_path(config: ProjectConfig, split: str) -> Path:
-    return config.paths.artifacts_dir / "tokenized" / f"mnist_{split}.pt"
+    return config.paths.artifacts_dir / "tokenized" / _artifact_namespace(config) / f"mnist_{split}.pt"
 
 
 def _encode_split(
@@ -92,9 +106,26 @@ def _encode_split(
     return grid_shape, int(image_tokens.shape[1])
 
 
+def _compact_codebook_and_splits(config: ProjectConfig, codebook: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    split_payloads = {split: torch.load(split_path(config, split), map_location="cpu") for split in ("train", "test")}
+    active = torch.unique(
+        torch.cat([payload["image_tokens"].reshape(-1).long() for payload in split_payloads.values()], dim=0),
+        sorted=True,
+    )
+    remap = torch.full((codebook.shape[0],), -1, dtype=torch.long)
+    remap[active] = torch.arange(active.numel(), dtype=torch.long)
+
+    for split, payload in split_payloads.items():
+        payload["image_tokens"] = remap[payload["image_tokens"].long()]
+        payload["codebook_size"] = int(active.numel())
+        torch.save(payload, split_path(config, split))
+
+    return codebook[active], active
+
+
 def prepare_assets(config: ProjectConfig) -> None:
     ensure_project_dirs(config)
-    tokenized_dir = config.paths.artifacts_dir / "tokenized"
+    tokenized_dir = tokenizer_state_path(config).parent
     tokenized_dir.mkdir(parents=True, exist_ok=True)
 
     tokenizer_device = resolve_device(config.tokenizer.device, config.train.gpu_index)
@@ -121,15 +152,24 @@ def prepare_assets(config: ProjectConfig) -> None:
             resolved_grid_shape = tuple(payload["grid_shape"])
             image_seq_len = int(payload["image_seq_len"])
 
+    codebook = tokenizer_artifacts.codebook
+    original_token_ids = None
+    original_codebook_size = int(tokenizer_artifacts.codebook_size)
+    if config.tokenizer.compact_vocab:
+        codebook, original_token_ids = _compact_codebook_and_splits(config, tokenizer_artifacts.codebook)
+
     torch.save(
         {
-            "codebook": tokenizer_artifacts.codebook,
-            "codebook_size": tokenizer_artifacts.codebook_size,
-            "embed_dim": tokenizer_artifacts.embed_dim,
+            "codebook": codebook,
+            "codebook_size": int(codebook.shape[0]),
+            "embed_dim": int(codebook.shape[1]),
             "grid_shape": resolved_grid_shape,
             "image_seq_len": image_seq_len,
             "image_size": tokenizer_artifacts.image_size,
             "label_values": torch.tensor(config.labels.values, dtype=torch.long),
+            "original_token_ids": original_token_ids,
+            "original_codebook_size": original_codebook_size,
+            "compact_vocab": config.tokenizer.compact_vocab,
         },
         tokenizer_state_path(config),
     )

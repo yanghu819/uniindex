@@ -16,6 +16,7 @@ tokenizer:
   image_size: 256
   device: cuda
   dtype: bfloat16
+  compact_vocab: true
 
 dataset:
   name: mnist
@@ -49,10 +50,14 @@ train:
   save_every: 250
   joint_weight: 0.5
   label_weight: 0.5
+  image_time_power: 1.0
+  label_time_power: 0.5
 
 sampling:
   steps: 8
   temperature: 1.0
+  image_time_power: 1.0
+  label_time_power: 0.5
 
 eval:
   num_unconditional_samples: 64

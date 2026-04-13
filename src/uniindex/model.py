@@ -7,6 +7,8 @@ import torch.nn as nn
 
 
 def sinusoidal_time_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
+    original_shape = t.shape
+    t = t.reshape(-1)
     half = dim // 2
     scale = math.log(10000) / max(half - 1, 1)
     frequencies = torch.exp(torch.arange(half, device=t.device) * -scale)
@@ -14,7 +16,7 @@ def sinusoidal_time_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
     emb = torch.cat([angles.sin(), angles.cos()], dim=-1)
     if dim % 2 == 1:
         emb = torch.cat([emb, torch.zeros_like(emb[:, :1])], dim=-1)
-    return emb
+    return emb.reshape(*original_shape, dim)
 
 
 class UnifiedDenoiser(nn.Module):
@@ -66,7 +68,13 @@ class UnifiedDenoiser(nn.Module):
         positions = torch.arange(seq_len, device=z_t.device)
         h = h + self.pos_embed(positions).unsqueeze(0)
         h = h + self.modality_embed(modality_ids.to(z_t.device)).unsqueeze(0)
-        h = h + self.time_proj(sinusoidal_time_embedding(t, h.shape[-1])).unsqueeze(1)
+        time_emb = self.time_proj(sinusoidal_time_embedding(t, h.shape[-1]).to(h.dtype))
+        if t.dim() == 1:
+            h = h + time_emb.unsqueeze(1)
+        elif t.dim() == 2:
+            h = h + time_emb
+        else:
+            raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
         h = self.transformer(h)
         h = self.norm(h)
         return self.head(h)

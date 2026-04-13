@@ -28,6 +28,7 @@ class TokenizerConfig:
     codebook_size: int | None = None
     embed_dim: int | None = None
     grid_size: int | None = None
+    compact_vocab: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,16 @@ class TrainConfig:
     save_every: int
     joint_weight: float
     label_weight: float
+    image_time_power: float = 1.0
+    label_time_power: float = 1.0
 
 
 @dataclass(frozen=True)
 class SamplingConfig:
     steps: int
     temperature: float
+    image_time_power: float = 1.0
+    label_time_power: float = 1.0
 
 
 @dataclass(frozen=True)

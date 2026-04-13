@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import itertools
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
 from .config import ProjectConfig
 from .data import build_loader, load_tokenizer_state, split_path
-from .layout import label_offset, mask_logits, position_modalities, unified_targets, unified_vocab_size
+from .layout import mask_logits, position_modalities, unified_targets, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
+from .state import apply_time_schedule, build_flm_clean_state, mix_flm_noise
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
@@ -26,12 +25,6 @@ def _infinite(loader):
         yield from loader
 
 
-def _build_x1(image_tokens: torch.Tensor, labels: torch.Tensor, codebook: torch.Tensor, label_embed: nn.Embedding) -> torch.Tensor:
-    image_embeddings = codebook[image_tokens]
-    label_embeddings = label_embed(labels).unsqueeze(1)
-    return torch.cat([image_embeddings, label_embeddings], dim=1)
-
-
 def _task_for_step(stage: str, step: int) -> str:
     if stage == "stage1":
         return "joint"
@@ -43,19 +36,14 @@ def _task_for_step(stage: str, step: int) -> str:
     return "image_to_label"
 
 
-def _mix_noise(x1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-    noise = torch.randn_like(x1)
-    return (1.0 - t[:, None, None]) * noise + t[:, None, None] * x1
-
-
-def _build_zt(x1: torch.Tensor, t: torch.Tensor, image_seq_len: int, task: str) -> torch.Tensor:
+def _build_zt(x1: torch.Tensor, t_pos: torch.Tensor, image_seq_len: int, task: str) -> torch.Tensor:
     if task == "joint":
-        return _mix_noise(x1, t)
+        return mix_flm_noise(x1, t_pos)
     z_t = x1.clone()
     if task == "label_to_image":
-        z_t[:, :image_seq_len] = _mix_noise(x1[:, :image_seq_len], t)
+        z_t[:, :image_seq_len] = mix_flm_noise(x1[:, :image_seq_len], t_pos[:, :image_seq_len])
     elif task == "image_to_label":
-        z_t[:, image_seq_len:] = _mix_noise(x1[:, image_seq_len:], t)
+        z_t[:, image_seq_len:] = mix_flm_noise(x1[:, image_seq_len:], t_pos[:, image_seq_len:])
     else:
         raise ValueError(f"unknown task {task}")
     return z_t
@@ -93,7 +81,6 @@ def _save_checkpoint(
     config: ProjectConfig,
     stage: str,
     model: UnifiedDenoiser,
-    label_embed: nn.Embedding,
     optimizer: torch.optim.Optimizer,
     step: int,
     tokenizer_state: dict,
@@ -104,7 +91,6 @@ def _save_checkpoint(
         "stage": stage,
         "step": step,
         "model": model.state_dict(),
-        "label_embed": label_embed.state_dict(),
         "optimizer": optimizer.state_dict(),
         "tokenizer_state": tokenizer_state,
         "config_name": config.name,
@@ -124,11 +110,10 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     run_context.set_device(device)
 
     tokenizer_state = load_tokenizer_state(config)
-    codebook = tokenizer_state["codebook"].float().to(device)
     codebook_size = int(tokenizer_state["codebook_size"])
-    embed_dim = int(tokenizer_state["embed_dim"])
     image_seq_len = int(torch.load(split_path(config, "train"))["image_seq_len"])
     num_labels = len(config.labels.values)
+    vocab_size = unified_vocab_size(codebook_size, num_labels)
 
     loader = build_loader(
         split_path(config, "train"),
@@ -139,16 +124,15 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     train_iter = _infinite(loader)
 
     model = UnifiedDenoiser(
-        input_dim=embed_dim,
+        input_dim=vocab_size,
         seq_len=image_seq_len + 1,
-        vocab_size=unified_vocab_size(codebook_size, num_labels),
+        vocab_size=vocab_size,
         d_model=config.model.d_model,
         n_heads=config.model.n_heads,
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
     ).to(device)
-    label_embed = nn.Embedding(num_labels, embed_dim).to(device)
 
     if stage == "stage2":
         stage1_path = latest_checkpoint_path(config, "stage1")
@@ -156,13 +140,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             raise FileNotFoundError(f"missing stage1 checkpoint at {stage1_path}")
         payload = torch.load(stage1_path, map_location=device)
         model.load_state_dict(payload["model"])
-        label_embed.load_state_dict(payload["label_embed"])
 
-    optimizer = torch.optim.AdamW(
-        itertools.chain(model.parameters(), label_embed.parameters()),
-        lr=config.train.lr,
-        weight_decay=config.train.weight_decay,
-    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
     total_steps = config.train.stage1_steps if stage == "stage1" else config.train.stage2_steps
     modality_ids = position_modalities(image_seq_len).to(device)
@@ -174,11 +153,17 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         image_tokens = batch["image_tokens"].to(device)
         labels = batch["label"].to(device)
         targets = unified_targets(image_tokens, labels, codebook_size)
-        x1 = _build_x1(image_tokens, labels, codebook, label_embed)
-        t = torch.rand(image_tokens.shape[0], device=device)
+        x1 = build_flm_clean_state(targets, vocab_size).to(device)
+        progress = torch.rand(image_tokens.shape[0], device=device)
+        t_pos = apply_time_schedule(
+            progress=progress,
+            modality_ids=modality_ids,
+            image_time_power=config.train.image_time_power,
+            label_time_power=config.train.label_time_power,
+        )
         task = _task_for_step(stage, step - 1)
-        z_t = _build_zt(x1, t, image_seq_len, task)
-        logits = model(z_t, t, modality_ids)
+        z_t = _build_zt(x1, t_pos, image_seq_len, task)
+        logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
             logits=logits,
             targets=targets,
@@ -192,10 +177,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            itertools.chain(model.parameters(), label_embed.parameters()),
-            max_norm=config.train.grad_clip_norm,
-        )
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.train.grad_clip_norm)
         optimizer.step()
 
         if step % config.train.log_every == 0 or step == 1:
@@ -205,12 +187,14 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
                     "step": step,
                     "task": task,
                     "loss": float(loss.item()),
+                    "image_t_mean": float(t_pos[:, :image_seq_len].mean().item()),
+                    "label_t_mean": float(t_pos[:, image_seq_len:].mean().item()),
                     **parts,
                 },
             )
 
         if step % config.train.save_every == 0 or step == total_steps:
-            _save_checkpoint(config, stage, model, label_embed, optimizer, step, tokenizer_state, run_context)
+            _save_checkpoint(config, stage, model, optimizer, step, tokenizer_state, run_context)
 
     if own_context:
         run_context.update_status("ok")
