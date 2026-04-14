@@ -6,6 +6,7 @@ MODE="${1:-smoke}"
 shift || true
 
 export UV_CACHE_DIR="$ROOT/.cache/uv"
+export UV_PYTHON_INSTALL_DIR="$ROOT/.cache/uv-python"
 export HF_HOME="$ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$ROOT/.cache/huggingface/hub"
 export TRANSFORMERS_CACHE="$ROOT/.cache/huggingface/transformers"
