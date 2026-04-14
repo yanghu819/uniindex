@@ -9,6 +9,7 @@ from .eval import evaluate
 from .runtime import RunContext, ensure_project_dirs
 from .train import train_stage
 from .visualize import export_visualizations
+from .ablation import run_compact_ablation
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -27,6 +28,10 @@ def _parser() -> argparse.ArgumentParser:
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
+
+    ablate = subparsers.add_parser("ablate-compact")
+    ablate.add_argument("--compact-config", required=True)
+    ablate.add_argument("--full-config", required=True)
 
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--config", required=True)
@@ -62,6 +67,13 @@ def _run_visualize(config_path: str) -> int:
     return 0
 
 
+def _run_compact_ablation(compact_config_path: str, full_config_path: str) -> int:
+    compact_config = load_config(compact_config_path)
+    ensure_project_dirs(compact_config)
+    run_compact_ablation(compact_config_path, full_config_path)
+    return 0
+
+
 def _run_smoke(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -88,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_eval(args.config)
     if args.command == "visualize":
         return _run_visualize(args.config)
+    if args.command == "ablate-compact":
+        return _run_compact_ablation(args.compact_config, args.full_config)
     if args.command == "smoke":
         return _run_smoke(args.config)
     return 1

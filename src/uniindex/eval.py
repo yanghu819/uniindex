@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import torch
 from tqdm import tqdm
@@ -11,7 +12,7 @@ from .data import build_loader, load_tokenizer_state, split_path
 from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
-from .state import apply_time_schedule, build_flm_clean_state, restore_image_tokens, sample_masked_noise
+from .state import apply_time_schedule, build_flm_clean_state, condition_clean_timesteps, restore_image_tokens, sample_masked_noise
 from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
@@ -88,6 +89,12 @@ def sample_unified(
     for step in range(steps):
         progress = torch.full((batch,), step / max(steps, 1), device=device)
         t_pos = apply_time_schedule(progress, modality_ids, image_time_power, effective_label_time_power)
+        t_pos = condition_clean_timesteps(
+            t_pos,
+            image_seq_len,
+            condition_image=condition_image_tokens is not None,
+            condition_label=condition_labels is not None,
+        )
         logits = model(z_t, t_pos, modality_ids)
         logits = mask_logits(logits, image_seq_len, codebook_size, num_labels)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
@@ -105,7 +112,11 @@ def sample_unified(
 
 
 @torch.inference_mode()
-def evaluate(config: ProjectConfig, run_context: RunContext | None = None) -> dict[str, float]:
+def evaluate(
+    config: ProjectConfig,
+    run_context: RunContext | None = None,
+    classifier_override_path: Path | None = None,
+) -> dict[str, float]:
     ensure_project_dirs(config)
     set_seed(config.train.seed)
     device = resolve_device(config.train.device, config.train.gpu_index)
@@ -118,7 +129,8 @@ def evaluate(config: ProjectConfig, run_context: RunContext | None = None) -> di
     num_labels = len(config.labels.values)
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
-    classifier = load_classifier(classifier_path(config.paths.models_dir), device=device)
+    classifier_source = classifier_override_path or classifier_path(config.paths.models_dir)
+    classifier = load_classifier(classifier_source, device=device)
     test_loader = build_loader(
         split_path(config, "test"),
         batch_size=config.train.eval_batch_size,

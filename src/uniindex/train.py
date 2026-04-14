@@ -11,7 +11,7 @@ from .data import build_loader, load_tokenizer_state, split_path
 from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_targets, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
-from .state import apply_time_schedule, build_flm_clean_state, mix_flm_noise
+from .state import apply_time_schedule, build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
 from .task_schedule import task_for_step
 
 
@@ -174,6 +174,12 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         progress = torch.rand(image_tokens.shape[0], device=device)
         task = task_for_step(config, stage, step - 1)
         t_pos = _task_time_schedule(config, progress, modality_ids, task)
+        t_pos = condition_clean_timesteps(
+            t_pos,
+            image_seq_len,
+            condition_image=task == "image_to_label",
+            condition_label=task == "label_to_image",
+        )
         z_t = _build_zt(x1, t_pos, image_seq_len, task, valid_token_mask)
         logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
