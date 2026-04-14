@@ -1,0 +1,65 @@
+project:
+  name: uniindex-smoke-compact-clean
+
+paths:
+  data_dir: data
+  artifacts_dir: artifacts/smoke_compact_clean
+  models_dir: models/smoke_compact_clean
+  runs_dir: runs/smoke_compact_clean
+  logs_dir: logs/smoke_compact_clean
+  cache_dir: .cache
+
+tokenizer:
+  kind: dummy
+  image_size: 32
+  codebook_size: 64
+  embed_dim: 32
+  grid_size: 4
+  compact_vocab: true
+
+dataset:
+  name: mnist
+  train_limit: 128
+  test_limit: 64
+
+labels:
+  values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+model:
+  d_model: 64
+  n_heads: 4
+  n_layers: 2
+  mlp_ratio: 2
+  dropout: 0.0
+
+train:
+  seed: 123
+  device: cuda
+  gpu_index: 0
+  mixed_precision: null
+  batch_size: 16
+  eval_batch_size: 16
+  num_workers: 0
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip_norm: 1.0
+  stage1_steps: 16
+  stage2_steps: 8
+  log_every: 4
+  save_every: 8
+  joint_weight: 0.5
+  label_weight: 0.5
+  image_time_power: 1.0
+  label_time_power: 0.5
+
+sampling:
+  steps: 4
+  temperature: 1.0
+  image_time_power: 1.0
+  label_time_power: 0.5
+
+eval:
+  num_unconditional_samples: 16
+  classifier_epochs: 1
+  classifier_batch_size: 32
+  classifier_lr: 0.001

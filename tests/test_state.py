@@ -1,7 +1,13 @@
 import torch
 
 from uniindex.layout import position_valid_token_mask
-from uniindex.state import apply_time_schedule, build_flm_clean_state, restore_image_tokens, sample_masked_noise
+from uniindex.state import (
+    apply_time_schedule,
+    build_flm_clean_state,
+    condition_clean_timesteps,
+    restore_image_tokens,
+    sample_masked_noise,
+)
 
 
 def test_build_flm_clean_state_returns_one_hot():
@@ -45,3 +51,24 @@ def test_sample_masked_noise_zeroes_invalid_dimensions():
     noise = sample_masked_noise(x1, mask)
     assert torch.all(noise[:, :2, 4:] == 0)
     assert torch.all(noise[:, 2:, :4] == 0)
+
+
+def test_condition_clean_timesteps_sets_conditioned_positions_to_one():
+    t_pos = torch.tensor([[0.2, 0.3, 0.7], [0.4, 0.5, 0.8]])
+    adjusted = condition_clean_timesteps(
+        t_pos,
+        image_seq_len=2,
+        condition_image=True,
+        condition_label=False,
+    )
+    assert torch.equal(adjusted[:, :2], torch.ones(2, 2))
+    assert torch.equal(adjusted[:, 2:], t_pos[:, 2:])
+
+    adjusted = condition_clean_timesteps(
+        t_pos,
+        image_seq_len=2,
+        condition_image=False,
+        condition_label=True,
+    )
+    assert torch.equal(adjusted[:, :2], t_pos[:, :2])
+    assert torch.equal(adjusted[:, 2:], torch.ones(2, 1))

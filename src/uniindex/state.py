@@ -46,6 +46,21 @@ def apply_time_schedule(
     return progress[:, None].pow(powers.unsqueeze(0))
 
 
+def condition_clean_timesteps(
+    t_pos: torch.Tensor,
+    image_seq_len: int,
+    *,
+    condition_image: bool,
+    condition_label: bool,
+) -> torch.Tensor:
+    adjusted = t_pos.clone()
+    if condition_image:
+        adjusted[:, :image_seq_len] = 1.0
+    if condition_label:
+        adjusted[:, image_seq_len:] = 1.0
+    return adjusted
+
+
 def restore_image_tokens(tokens: torch.Tensor, tokenizer_state: dict) -> torch.Tensor:
     original_token_ids = tokenizer_state.get("original_token_ids")
     if original_token_ids is None:

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="${1:-smoke}"
+shift || true
 
 export UV_CACHE_DIR="$ROOT/.cache/uv"
 export HF_HOME="$ROOT/.cache/huggingface"
@@ -21,38 +22,100 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 
-CONFIG="configs/default.yaml"
-if [[ "$MODE" == "smoke" ]]; then
-  CONFIG="configs/smoke.yaml"
-fi
-
-shift || true
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --config)
-      CONFIG="$2"
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-
 case "$MODE" in
   smoke)
+    CONFIG="configs/smoke.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
     uv run --project "$ROOT" uniindex smoke --config "$CONFIG"
     ;;
+  ablate-compact)
+    COMPACT_CONFIG="configs/smoke_compact_clean.yaml"
+    FULL_CONFIG="configs/smoke_fullvocab_clean.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --compact-config)
+          COMPACT_CONFIG="$2"
+          shift 2
+          ;;
+        --full-config)
+          FULL_CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    uv run --project "$ROOT" uniindex ablate-compact --compact-config "$COMPACT_CONFIG" --full-config "$FULL_CONFIG"
+    ;;
   stage1)
+    CONFIG="configs/default.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
     uv run --project "$ROOT" uniindex train --config "$CONFIG" --stage stage1
     ;;
   stage2)
+    CONFIG="configs/default.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
     uv run --project "$ROOT" uniindex train --config "$CONFIG" --stage stage2
     ;;
   eval)
+    CONFIG="configs/default.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
     uv run --project "$ROOT" uniindex eval --config "$CONFIG"
     ;;
   visualize)
+    CONFIG="configs/default.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
     uv run --project "$ROOT" uniindex visualize --config "$CONFIG"
     ;;
   *)
