@@ -37,6 +37,7 @@ def _shared_classifier_path(config) -> Path:
     return train_or_load_classifier(
         data_dir=config.paths.data_dir,
         models_dir=shared_models_dir,
+        dataset_name=config.dataset.name,
         device=resolve_device(config.train.device, config.train.gpu_index),
         epochs=config.eval.classifier_epochs,
         batch_size=config.eval.classifier_batch_size,

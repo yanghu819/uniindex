@@ -1,0 +1,71 @@
+project:
+  name: uniindex-cifar10-fullvocab-quick
+
+paths:
+  data_dir: data
+  artifacts_dir: artifacts/cifar10_fullvocab_quick
+  models_dir: models/cifar10_fullvocab_quick
+  runs_dir: runs/cifar10_fullvocab_quick
+  logs_dir: logs/cifar10_fullvocab_quick
+  cache_dir: .cache
+
+tokenizer:
+  kind: emu3p5
+  model_name: BAAI/Emu3.5-VisionTokenizer
+  trust_remote_code: true
+  image_size: 256
+  device: cuda
+  dtype: bfloat16
+  compact_vocab: false
+
+dataset:
+  name: cifar10
+  train_limit: 4096
+  test_limit: 512
+
+labels:
+  values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+model:
+  d_model: 256
+  n_heads: 8
+  n_layers: 6
+  mlp_ratio: 4
+  dropout: 0.0
+
+train:
+  seed: 42
+  device: cuda
+  gpu_index: 0
+  mixed_precision: null
+  batch_size: 2
+  eval_batch_size: 4
+  num_workers: 4
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  stage1_steps: 400
+  stage2_steps: 800
+  log_every: 20
+  save_every: 100
+  joint_weight: 0.5
+  label_weight: 1.0
+  stage2_joint_repeats: 2
+  stage2_label_to_image_repeats: 1
+  stage2_image_to_label_repeats: 8
+  image_time_power: 1.0
+  label_time_power: 0.25
+  image_to_label_label_time_power: 4.0
+
+sampling:
+  steps: 8
+  temperature: 1.0
+  image_time_power: 1.0
+  label_time_power: 0.25
+  image_to_label_label_time_power: 4.0
+
+eval:
+  num_unconditional_samples: 32
+  classifier_epochs: 3
+  classifier_batch_size: 256
+  classifier_lr: 0.001
