@@ -8,10 +8,10 @@ from tqdm import tqdm
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
 from .data import build_loader, load_tokenizer_state, split_path
-from .layout import mask_logits, position_modalities, unified_vocab_size
+from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
-from .state import apply_time_schedule, build_flm_clean_state, restore_image_tokens
+from .state import apply_time_schedule, build_flm_clean_state, restore_image_tokens, sample_masked_noise
 from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
@@ -70,8 +70,9 @@ def sample_unified(
 
     seq_len = image_seq_len + 1
     vocab_size = unified_vocab_size(codebook_size, num_labels)
-    z_t = torch.randn(batch, seq_len, vocab_size, device=device)
     modality_ids = position_modalities(image_seq_len).to(device)
+    valid_token_mask = position_valid_token_mask(image_seq_len, codebook_size, num_labels).to(device)
+    z_t = sample_masked_noise(torch.zeros(batch, seq_len, vocab_size, device=device), valid_token_mask)
 
     if condition_image_tokens is not None:
         z_t[:, :image_seq_len] = build_flm_clean_state(condition_image_tokens.to(device), vocab_size)

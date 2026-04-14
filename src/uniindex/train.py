@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from .config import ProjectConfig
 from .data import build_loader, load_tokenizer_state, split_path
-from .layout import mask_logits, position_modalities, unified_targets, unified_vocab_size
+from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_targets, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
 from .state import apply_time_schedule, build_flm_clean_state, mix_flm_noise
@@ -26,14 +26,28 @@ def _infinite(loader):
         yield from loader
 
 
-def _build_zt(x1: torch.Tensor, t_pos: torch.Tensor, image_seq_len: int, task: str) -> torch.Tensor:
+def _build_zt(
+    x1: torch.Tensor,
+    t_pos: torch.Tensor,
+    image_seq_len: int,
+    task: str,
+    valid_token_mask: torch.Tensor,
+) -> torch.Tensor:
     if task == "joint":
-        return mix_flm_noise(x1, t_pos)
+        return mix_flm_noise(x1, t_pos, valid_token_mask)
     z_t = x1.clone()
     if task == "label_to_image":
-        z_t[:, :image_seq_len] = mix_flm_noise(x1[:, :image_seq_len], t_pos[:, :image_seq_len])
+        z_t[:, :image_seq_len] = mix_flm_noise(
+            x1[:, :image_seq_len],
+            t_pos[:, :image_seq_len],
+            valid_token_mask[:image_seq_len],
+        )
     elif task == "image_to_label":
-        z_t[:, image_seq_len:] = mix_flm_noise(x1[:, image_seq_len:], t_pos[:, image_seq_len:])
+        z_t[:, image_seq_len:] = mix_flm_noise(
+            x1[:, image_seq_len:],
+            t_pos[:, image_seq_len:],
+            valid_token_mask[image_seq_len:],
+        )
     else:
         raise ValueError(f"unknown task {task}")
     return z_t
@@ -147,6 +161,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
 
     total_steps = config.train.stage1_steps if stage == "stage1" else config.train.stage2_steps
     modality_ids = position_modalities(image_seq_len).to(device)
+    valid_token_mask = position_valid_token_mask(image_seq_len, codebook_size, num_labels).to(device)
     train_log = run_context.log_path("train.jsonl")
 
     model.train()
@@ -159,7 +174,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         progress = torch.rand(image_tokens.shape[0], device=device)
         task = task_for_step(config, stage, step - 1)
         t_pos = _task_time_schedule(config, progress, modality_ids, task)
-        z_t = _build_zt(x1, t_pos, image_seq_len, task)
+        z_t = _build_zt(x1, t_pos, image_seq_len, task, valid_token_mask)
         logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
             logits=logits,

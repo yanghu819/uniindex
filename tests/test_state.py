@@ -1,6 +1,7 @@
 import torch
 
-from uniindex.state import apply_time_schedule, build_flm_clean_state, restore_image_tokens
+from uniindex.layout import position_valid_token_mask
+from uniindex.state import apply_time_schedule, build_flm_clean_state, restore_image_tokens, sample_masked_noise
 
 
 def test_build_flm_clean_state_returns_one_hot():
@@ -28,3 +29,19 @@ def test_restore_image_tokens_maps_compact_ids_back_to_original_ids():
     tokenizer_state = {"original_token_ids": torch.tensor([7, 11, 19])}
     restored = restore_image_tokens(tokens, tokenizer_state)
     assert torch.equal(restored, torch.tensor([[7, 19, 11]]))
+
+
+def test_position_valid_token_mask_separates_image_and_label_subspaces():
+    mask = position_valid_token_mask(image_seq_len=2, codebook_size=4, num_labels=3)
+    assert mask.shape == (3, 7)
+    assert torch.equal(mask[0], torch.tensor([True, True, True, True, False, False, False]))
+    assert torch.equal(mask[1], torch.tensor([True, True, True, True, False, False, False]))
+    assert torch.equal(mask[2], torch.tensor([False, False, False, False, True, True, True]))
+
+
+def test_sample_masked_noise_zeroes_invalid_dimensions():
+    x1 = torch.zeros(2, 3, 7)
+    mask = position_valid_token_mask(image_seq_len=2, codebook_size=4, num_labels=3)
+    noise = sample_masked_noise(x1, mask)
+    assert torch.all(noise[:, :2, 4:] == 0)
+    assert torch.all(noise[:, 2:, :4] == 0)
