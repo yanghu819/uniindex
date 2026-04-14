@@ -70,6 +70,9 @@ class TrainConfig:
     save_every: int
     joint_weight: float
     label_weight: float
+    stage2_joint_repeats: int = 2
+    stage2_label_to_image_repeats: int = 1
+    stage2_image_to_label_repeats: int = 1
     image_time_power: float = 1.0
     label_time_power: float = 1.0
     image_to_label_label_time_power: float | None = None

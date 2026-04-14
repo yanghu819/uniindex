@@ -8,6 +8,7 @@ from .data import prepare_assets
 from .eval import evaluate
 from .runtime import RunContext, ensure_project_dirs
 from .train import train_stage
+from .visualize import export_visualizations
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -23,6 +24,9 @@ def _parser() -> argparse.ArgumentParser:
 
     eval_parser = subparsers.add_parser("eval")
     eval_parser.add_argument("--config", required=True)
+
+    visualize = subparsers.add_parser("visualize")
+    visualize.add_argument("--config", required=True)
 
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--config", required=True)
@@ -51,6 +55,13 @@ def _run_eval(config_path: str) -> int:
     return 0
 
 
+def _run_visualize(config_path: str) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    export_visualizations(config)
+    return 0
+
+
 def _run_smoke(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -75,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_train(args.config, args.stage)
     if args.command == "eval":
         return _run_eval(args.config)
+    if args.command == "visualize":
+        return _run_visualize(args.config)
     if args.command == "smoke":
         return _run_smoke(args.config)
     return 1
