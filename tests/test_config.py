@@ -27,3 +27,10 @@ def test_load_fullvocab_clean_config():
     config = load_config("configs/smoke_fullvocab_clean.yaml")
     assert config.tokenizer.compact_vocab is False
     assert config.paths.models_dir.name == "smoke_fullvocab_clean"
+
+
+def test_load_imageheavy_config():
+    config = load_config("configs/flm_joint_work_imageheavy.yaml")
+    assert config.train.stage2_joint_repeats == 2
+    assert config.train.stage2_label_to_image_repeats == 1
+    assert config.train.stage2_image_to_label_repeats == 8
