@@ -52,6 +52,9 @@ case "$MODE" in
   eval)
     uv run --project "$ROOT" uniindex eval --config "$CONFIG"
     ;;
+  visualize)
+    uv run --project "$ROOT" uniindex visualize --config "$CONFIG"
+    ;;
   *)
     echo "Unknown mode: $MODE" >&2
     exit 1

@@ -14,3 +14,10 @@ def test_load_understanding_config():
     config = load_config("configs/flm_understanding.yaml")
     assert config.train.image_to_label_label_time_power == 4.0
     assert config.sampling.image_to_label_label_time_power == 4.0
+
+
+def test_load_joint_work_config():
+    config = load_config("configs/flm_joint_work.yaml")
+    assert config.train.stage2_joint_repeats == 2
+    assert config.train.stage2_label_to_image_repeats == 2
+    assert config.train.stage2_image_to_label_repeats == 4

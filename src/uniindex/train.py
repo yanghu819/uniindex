@@ -12,6 +12,7 @@ from .layout import mask_logits, position_modalities, unified_targets, unified_v
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
 from .state import apply_time_schedule, build_flm_clean_state, mix_flm_noise
+from .task_schedule import task_for_step
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
@@ -23,17 +24,6 @@ def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
 def _infinite(loader):
     while True:
         yield from loader
-
-
-def _task_for_step(stage: str, step: int) -> str:
-    if stage == "stage1":
-        return "joint"
-    bucket = step % 4
-    if bucket in (0, 1):
-        return "joint"
-    if bucket == 2:
-        return "label_to_image"
-    return "image_to_label"
 
 
 def _build_zt(x1: torch.Tensor, t_pos: torch.Tensor, image_seq_len: int, task: str) -> torch.Tensor:
@@ -167,7 +157,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         targets = unified_targets(image_tokens, labels, codebook_size)
         x1 = build_flm_clean_state(targets, vocab_size).to(device)
         progress = torch.rand(image_tokens.shape[0], device=device)
-        task = _task_for_step(stage, step - 1)
+        task = task_for_step(config, stage, step - 1)
         t_pos = _task_time_schedule(config, progress, modality_ids, task)
         z_t = _build_zt(x1, t_pos, image_seq_len, task)
         logits = model(z_t, t_pos, modality_ids)
