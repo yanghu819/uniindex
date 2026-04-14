@@ -56,6 +56,7 @@ def sample_unified(
     steps: int,
     image_time_power: float,
     label_time_power: float,
+    image_to_label_label_time_power: float | None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_labels: torch.Tensor | None = None,
@@ -78,10 +79,14 @@ def sample_unified(
         label_tokens = condition_labels.to(device).unsqueeze(1) + codebook_size
         z_t[:, image_seq_len:] = build_flm_clean_state(label_tokens, vocab_size)
 
+    effective_label_time_power = label_time_power
+    if condition_image_tokens is not None and condition_labels is None and image_to_label_label_time_power is not None:
+        effective_label_time_power = image_to_label_label_time_power
+
     dt = 1.0 / max(steps, 1)
     for step in range(steps):
         progress = torch.full((batch,), step / max(steps, 1), device=device)
-        t_pos = apply_time_schedule(progress, modality_ids, image_time_power, label_time_power)
+        t_pos = apply_time_schedule(progress, modality_ids, image_time_power, effective_label_time_power)
         logits = model(z_t, t_pos, modality_ids)
         logits = mask_logits(logits, image_seq_len, codebook_size, num_labels)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
@@ -92,7 +97,7 @@ def sample_unified(
         if condition_labels is not None:
             z_t[:, image_seq_len:] = build_flm_clean_state(label_tokens, vocab_size)
 
-    final_t_pos = apply_time_schedule(torch.ones(batch, device=device), modality_ids, image_time_power, label_time_power)
+    final_t_pos = apply_time_schedule(torch.ones(batch, device=device), modality_ids, image_time_power, effective_label_time_power)
     final_logits = model(z_t, final_t_pos, modality_ids)
     final_logits = mask_logits(final_logits, image_seq_len, codebook_size, num_labels)
     return final_logits.argmax(dim=-1)
@@ -141,6 +146,7 @@ def evaluate(config: ProjectConfig, run_context: RunContext | None = None) -> di
             steps=config.sampling.steps,
             image_time_power=config.sampling.image_time_power,
             label_time_power=config.sampling.label_time_power,
+            image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
             condition_image_tokens=image_tokens,
             condition_labels=None,
         )[:, image_seq_len]
@@ -155,6 +161,7 @@ def evaluate(config: ProjectConfig, run_context: RunContext | None = None) -> di
             steps=config.sampling.steps,
             image_time_power=config.sampling.image_time_power,
             label_time_power=config.sampling.label_time_power,
+            image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
             condition_image_tokens=None,
             condition_labels=labels,
         )[:, :image_seq_len]
@@ -174,6 +181,7 @@ def evaluate(config: ProjectConfig, run_context: RunContext | None = None) -> di
         steps=config.sampling.steps,
         image_time_power=config.sampling.image_time_power,
         label_time_power=config.sampling.label_time_power,
+        image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
         batch_size=uncond_count,
         condition_image_tokens=None,
         condition_labels=None,

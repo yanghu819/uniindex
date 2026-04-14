@@ -49,6 +49,18 @@ def _build_zt(x1: torch.Tensor, t_pos: torch.Tensor, image_seq_len: int, task: s
     return z_t
 
 
+def _task_time_schedule(config: ProjectConfig, progress: torch.Tensor, modality_ids: torch.Tensor, task: str) -> torch.Tensor:
+    label_time_power = config.train.label_time_power
+    if task == "image_to_label" and config.train.image_to_label_label_time_power is not None:
+        label_time_power = config.train.image_to_label_label_time_power
+    return apply_time_schedule(
+        progress=progress,
+        modality_ids=modality_ids,
+        image_time_power=config.train.image_time_power,
+        label_time_power=label_time_power,
+    )
+
+
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -155,13 +167,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         targets = unified_targets(image_tokens, labels, codebook_size)
         x1 = build_flm_clean_state(targets, vocab_size).to(device)
         progress = torch.rand(image_tokens.shape[0], device=device)
-        t_pos = apply_time_schedule(
-            progress=progress,
-            modality_ids=modality_ids,
-            image_time_power=config.train.image_time_power,
-            label_time_power=config.train.label_time_power,
-        )
         task = _task_for_step(stage, step - 1)
+        t_pos = _task_time_schedule(config, progress, modality_ids, task)
         z_t = _build_zt(x1, t_pos, image_seq_len, task)
         logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
