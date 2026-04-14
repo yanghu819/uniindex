@@ -13,7 +13,7 @@ from .runtime import ensure_project_dirs, resolve_device
 from .tokenizer import BaseVisionTokenizer, build_tokenizer
 
 
-class TokenizedMNISTDataset(Dataset):
+class TokenizedImageDataset(Dataset):
     def __init__(self, path: Path) -> None:
         payload = torch.load(path)
         self.image_tokens = payload["image_tokens"].long()
@@ -32,8 +32,12 @@ class TokenizedMNISTDataset(Dataset):
         }
 
 
-def _mnist_dataset(data_dir: Path, train: bool) -> datasets.MNIST:
-    return datasets.MNIST(root=data_dir, train=train, download=True)
+def _build_raw_dataset(dataset_name: str, data_dir: Path, train: bool):
+    if dataset_name == "mnist":
+        return datasets.MNIST(root=data_dir, train=train, download=True)
+    if dataset_name == "cifar10":
+        return datasets.CIFAR10(root=data_dir, train=train, download=True)
+    raise ValueError(f"unsupported dataset {dataset_name}")
 
 
 def _prepare_image(image: Image.Image, image_size: int) -> Image.Image:
@@ -54,7 +58,10 @@ def _artifact_namespace(config: ProjectConfig) -> str:
     train_limit = "all" if config.dataset.train_limit is None else str(config.dataset.train_limit)
     test_limit = "all" if config.dataset.test_limit is None else str(config.dataset.test_limit)
     compact = "1" if tok.compact_vocab else "0"
-    return f"{tok.kind}-{model_slug}-img{tok.image_size}-train{train_limit}-test{test_limit}-compact{compact}"
+    return (
+        f"{config.dataset.name}-"
+        f"{tok.kind}-{model_slug}-img{tok.image_size}-train{train_limit}-test{test_limit}-compact{compact}"
+    )
 
 
 def tokenizer_state_path(config: ProjectConfig) -> Path:
@@ -62,11 +69,11 @@ def tokenizer_state_path(config: ProjectConfig) -> Path:
 
 
 def split_path(config: ProjectConfig, split: str) -> Path:
-    return config.paths.artifacts_dir / "tokenized" / _artifact_namespace(config) / f"mnist_{split}.pt"
+    return config.paths.artifacts_dir / "tokenized" / _artifact_namespace(config) / f"{config.dataset.name}_{split}.pt"
 
 
 def _encode_split(
-    dataset: datasets.MNIST,
+    dataset,
     tokenizer: BaseVisionTokenizer,
     image_size: int,
     limit: int | None,
@@ -134,6 +141,7 @@ def prepare_assets(config: ProjectConfig) -> None:
         train_or_load_classifier(
             data_dir=config.paths.data_dir,
             models_dir=config.paths.models_dir,
+            dataset_name=config.dataset.name,
             device=resolve_device(config.train.device, config.train.gpu_index),
             epochs=config.eval.classifier_epochs,
             batch_size=config.eval.classifier_batch_size,
@@ -152,7 +160,7 @@ def prepare_assets(config: ProjectConfig) -> None:
         out_path = split_path(config, split)
         should_reencode = config.tokenizer.compact_vocab or not out_path.exists()
         if should_reencode:
-            dataset = _mnist_dataset(config.paths.data_dir, train=split == "train")
+            dataset = _build_raw_dataset(config.dataset.name, config.paths.data_dir, train=split == "train")
             resolved_grid_shape, image_seq_len = _encode_split(
                 dataset=dataset,
                 tokenizer=tokenizer,
@@ -191,6 +199,7 @@ def prepare_assets(config: ProjectConfig) -> None:
     train_or_load_classifier(
         data_dir=config.paths.data_dir,
         models_dir=config.paths.models_dir,
+        dataset_name=config.dataset.name,
         device=resolve_device(config.train.device, config.train.gpu_index),
         epochs=config.eval.classifier_epochs,
         batch_size=config.eval.classifier_batch_size,
@@ -203,5 +212,5 @@ def load_tokenizer_state(config: ProjectConfig) -> dict:
 
 
 def build_loader(path: Path, batch_size: int, shuffle: bool, num_workers: int) -> DataLoader:
-    ds = TokenizedMNISTDataset(path)
+    ds = TokenizedImageDataset(path)
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)

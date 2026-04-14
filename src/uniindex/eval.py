@@ -129,8 +129,8 @@ def evaluate(
     num_labels = len(config.labels.values)
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
-    classifier_source = classifier_override_path or classifier_path(config.paths.models_dir)
-    classifier = load_classifier(classifier_source, device=device)
+    classifier_source = classifier_override_path or classifier_path(config.paths.models_dir, config.dataset.name)
+    classifier = load_classifier(classifier_source, config.dataset.name, device=device)
     test_loader = build_loader(
         split_path(config, "test"),
         batch_size=config.train.eval_batch_size,
@@ -147,7 +147,7 @@ def evaluate(
         image_tokens = batch["image_tokens"].to(device)
         labels = batch["label"].to(device)
         decoded = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
-        ceiling_pred = classify_images(classifier, decoded)
+        ceiling_pred = classify_images(classifier, decoded, config.dataset.name)
         ceiling_correct += (ceiling_pred == labels).sum().item()
 
         sampled_labels = sample_unified(
@@ -179,7 +179,7 @@ def evaluate(
             condition_labels=labels,
         )[:, :image_seq_len]
         decoded_images = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
-        image_pred = classify_images(classifier, decoded_images)
+        image_pred = classify_images(classifier, decoded_images, config.dataset.name)
         image_correct += (image_pred == labels).sum().item()
 
         total += labels.numel()
@@ -200,7 +200,7 @@ def evaluate(
         condition_labels=None,
     )
     uncond_images = _decode_image_tokens(tokenizer, sampled[:, :image_seq_len], tokenizer_state, grid_shape, device)
-    uncond_image_pred = classify_images(classifier, uncond_images)
+    uncond_image_pred = classify_images(classifier, uncond_images, config.dataset.name)
     uncond_labels = sampled[:, image_seq_len] - codebook_size
     consistency = (uncond_image_pred == uncond_labels).float().mean().item()
 

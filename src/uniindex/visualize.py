@@ -56,7 +56,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     num_labels = len(config.labels.values)
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
-    classifier = load_classifier(classifier_path(config.paths.models_dir), device=device)
+    classifier = load_classifier(classifier_path(config.paths.models_dir, config.dataset.name), config.dataset.name, device=device)
     test_loader = build_loader(
         split_path(config, "test"),
         batch_size=16,
@@ -98,7 +98,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         condition_labels=label_conditions,
     )[:, :image_seq_len]
     decoded_generated = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
-    generated_preds = classify_images(classifier, decoded_generated)
+    generated_preds = classify_images(classifier, decoded_generated, config.dataset.name)
 
     unconditional = sample_unified(
         model=model,
@@ -115,7 +115,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         condition_labels=None,
     )
     unconditional_images = _decode_image_tokens(tokenizer, unconditional[:, :image_seq_len], tokenizer_state, grid_shape, device)
-    unconditional_clf = classify_images(classifier, unconditional_images)
+    unconditional_clf = classify_images(classifier, unconditional_images, config.dataset.name)
     unconditional_tokens = unconditional[:, image_seq_len] - codebook_size
 
     image_to_label_grid = _make_grid(

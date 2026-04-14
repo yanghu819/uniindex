@@ -34,3 +34,16 @@ def test_load_imageheavy_config():
     assert config.train.stage2_joint_repeats == 2
     assert config.train.stage2_label_to_image_repeats == 1
     assert config.train.stage2_image_to_label_repeats == 8
+
+
+def test_load_smoke_cifar10_config():
+    config = load_config("configs/smoke_cifar10.yaml")
+    assert config.dataset.name == "cifar10"
+    assert config.tokenizer.kind == "dummy"
+
+
+def test_load_cifar10_fullvocab_quick_config():
+    config = load_config("configs/flm_cifar10_fullvocab_quick.yaml")
+    assert config.dataset.name == "cifar10"
+    assert config.tokenizer.compact_vocab is False
+    assert config.train.batch_size == 2
