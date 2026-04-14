@@ -68,9 +68,8 @@ class DummyVisionTokenizer(BaseVisionTokenizer):
 
 class EmuVisionTokenizer(BaseVisionTokenizer):
     def __init__(self, model_name: str, trust_remote_code: bool, image_size: int, device: torch.device, dtype: torch.dtype) -> None:
-        from transformers import AutoImageProcessor, AutoModel
+        from transformers import AutoModel
 
-        self.processor = AutoImageProcessor.from_pretrained(model_name, trust_remote_code=trust_remote_code)
         self.model = AutoModel.from_pretrained(model_name, trust_remote_code=trust_remote_code)
         self.model.eval()
         self.model.to(device=device, dtype=dtype)
@@ -79,9 +78,21 @@ class EmuVisionTokenizer(BaseVisionTokenizer):
         self.image_size = image_size
         self._codebook = self.model.quantize.embedding.weight.detach().float().cpu()
 
+    def _preprocess_pil_batch(self, images: Sequence[Image.Image]) -> torch.Tensor:
+        batch = []
+        for image in images:
+            rgb = image.convert("RGB")
+            if rgb.size != (self.image_size, self.image_size):
+                rgb = rgb.resize((self.image_size, self.image_size), Image.BICUBIC)
+            array = np.asarray(rgb, dtype=np.float32) / 255.0
+            tensor = torch.from_numpy(array).permute(2, 0, 1)
+            batch.append(tensor)
+        pixel_values = torch.stack(batch, dim=0)
+        return pixel_values.mul(2.0).sub(1.0)
+
     @torch.inference_mode()
     def encode_pil_batch(self, images: Sequence[Image.Image]) -> tuple[torch.Tensor, tuple[int, int]]:
-        pixel_values = self.processor(images=list(images), return_tensors="pt")["pixel_values"]
+        pixel_values = self._preprocess_pil_batch(images)
         pixel_values = pixel_values.to(device=self.device, dtype=self.dtype)
         quant_embed, _, (_, _, token_ids) = self.model.encode(pixel_values)
         batch, _, height, width = quant_embed.shape
