@@ -9,6 +9,7 @@ if [[ "${1:-}" == "--config" ]]; then
 fi
 
 export UV_CACHE_DIR="$ROOT/.cache/uv"
+export UV_PYTHON_INSTALL_DIR="$ROOT/.cache/uv-python"
 export HF_HOME="$ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$ROOT/.cache/huggingface/hub"
 export TRANSFORMERS_CACHE="$ROOT/.cache/huggingface/transformers"
@@ -24,6 +25,6 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$ROOT/.cache/uv-bin:$PATH"
 fi
 
-mkdir -p "$ROOT/.cache" "$ROOT/data" "$ROOT/artifacts" "$ROOT/models" "$ROOT/runs" "$ROOT/logs"
+mkdir -p "$ROOT/.cache" "$UV_PYTHON_INSTALL_DIR" "$ROOT/data" "$ROOT/artifacts" "$ROOT/models" "$ROOT/runs" "$ROOT/logs"
 
 uv run --project "$ROOT" uniindex prepare --config "$CONFIG"
