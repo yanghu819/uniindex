@@ -29,6 +29,11 @@ def modality_vocab_mask(codebook_size: int, num_labels: int) -> torch.Tensor:
     return masks
 
 
+def position_valid_token_mask(image_seq_len: int, codebook_size: int, num_labels: int) -> torch.Tensor:
+    position_types = position_modalities(image_seq_len)
+    return modality_vocab_mask(codebook_size, num_labels)[position_types]
+
+
 def unified_targets(image_tokens: torch.Tensor, labels: torch.Tensor, codebook_size: int) -> torch.Tensor:
     label_tokens = labels.unsqueeze(1) + codebook_size
     return torch.cat([image_tokens, label_tokens], dim=1)

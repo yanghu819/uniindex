@@ -8,14 +8,25 @@ def build_flm_clean_state(targets: torch.Tensor, vocab_size: int) -> torch.Tenso
     return F.one_hot(targets.long(), num_classes=vocab_size).float()
 
 
-def mix_flm_noise(x1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+def sample_masked_noise(x1: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
+    noise = torch.randn_like(x1)
+    if valid_token_mask is None:
+        return noise
+    mask = valid_token_mask.to(device=x1.device, dtype=x1.dtype)
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0)
+    noise = noise * mask
+    return noise
+
+
+def mix_flm_noise(x1: torch.Tensor, t: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
     if t.dim() == 1:
         weight = t[:, None, None]
     elif t.dim() == 2:
         weight = t.unsqueeze(-1)
     else:
         raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
-    noise = torch.randn_like(x1)
+    noise = sample_masked_noise(x1, valid_token_mask)
     return (1.0 - weight) * noise + weight * x1
 
 
