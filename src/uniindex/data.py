@@ -127,6 +127,19 @@ def prepare_assets(config: ProjectConfig) -> None:
     ensure_project_dirs(config)
     tokenized_dir = tokenizer_state_path(config).parent
     tokenized_dir.mkdir(parents=True, exist_ok=True)
+    train_out = split_path(config, "train")
+    test_out = split_path(config, "test")
+
+    if tokenizer_state_path(config).exists() and train_out.exists() and test_out.exists():
+        train_or_load_classifier(
+            data_dir=config.paths.data_dir,
+            models_dir=config.paths.models_dir,
+            device=resolve_device(config.train.device, config.train.gpu_index),
+            epochs=config.eval.classifier_epochs,
+            batch_size=config.eval.classifier_batch_size,
+            lr=config.eval.classifier_lr,
+        )
+        return
 
     tokenizer_device = resolve_device(config.tokenizer.device, config.train.gpu_index)
     tokenizer = build_tokenizer(config, device=tokenizer_device)
@@ -137,7 +150,8 @@ def prepare_assets(config: ProjectConfig) -> None:
 
     for split, limit in (("train", config.dataset.train_limit), ("test", config.dataset.test_limit)):
         out_path = split_path(config, split)
-        if not out_path.exists():
+        should_reencode = config.tokenizer.compact_vocab or not out_path.exists()
+        if should_reencode:
             dataset = _mnist_dataset(config.paths.data_dir, train=split == "train")
             resolved_grid_shape, image_seq_len = _encode_split(
                 dataset=dataset,
