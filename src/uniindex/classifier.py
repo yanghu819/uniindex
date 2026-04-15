@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+
+from .datasets import build_image_dataset, pil_to_tensor
 
 
 def _dataset_num_classes(dataset_name: str) -> int:
@@ -20,14 +21,6 @@ def _dataset_input_spec(dataset_name: str) -> tuple[int, int]:
         return 1, 28
     if dataset_name == "cifar10":
         return 3, 32
-    raise ValueError(f"unsupported dataset {dataset_name}")
-
-
-def _build_dataset(dataset_name: str, data_dir: Path, train: bool, transform) -> torch.utils.data.Dataset:
-    if dataset_name == "mnist":
-        return datasets.MNIST(root=data_dir, train=train, download=True, transform=transform)
-    if dataset_name == "cifar10":
-        return datasets.CIFAR10(root=data_dir, train=train, download=True, transform=transform)
     raise ValueError(f"unsupported dataset {dataset_name}")
 
 
@@ -92,9 +85,8 @@ def train_or_load_classifier(
     if path.exists() and not force_retrain:
         return path
 
-    transform = transforms.ToTensor()
-    train_ds = _build_dataset(dataset_name, data_dir, train=True, transform=transform)
-    test_ds = _build_dataset(dataset_name, data_dir, train=False, transform=transform)
+    train_ds = build_image_dataset(dataset_name, data_dir, train=True, transform=pil_to_tensor)
+    test_ds = build_image_dataset(dataset_name, data_dir, train=False, transform=pil_to_tensor)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 

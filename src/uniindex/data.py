@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
-import tarfile
 
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets
 
 from .classifier import train_or_load_classifier
 from .config import ProjectConfig
+from .datasets import build_image_dataset
 from .runtime import ensure_project_dirs, resolve_device
 from .tokenizer import BaseVisionTokenizer, build_tokenizer
 
@@ -34,61 +32,8 @@ class TokenizedImageDataset(Dataset):
         }
 
 
-def _ensure_cifar10_downloaded(data_dir: Path) -> None:
-    extracted_dir = data_dir / "cifar-10-batches-py"
-    if (extracted_dir / "data_batch_1").exists():
-        return
-
-    archive_path = data_dir / "cifar-10-python.tar.gz"
-    if archive_path.exists() and archive_path.stat().st_size == 0:
-        archive_path.unlink()
-
-    if not archive_path.exists():
-        urls = [
-            "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz",
-            "https://data.brainchip.com/dataset-mirror/cifar10/cifar-10-python.tar.gz",
-        ]
-        last_error: Exception | None = None
-        for url in urls:
-            try:
-                subprocess.run(
-                    [
-                        "curl",
-                        "-L",
-                        "--fail",
-                        "--retry",
-                        "3",
-                        "--connect-timeout",
-                        "20",
-                        "--max-time",
-                        "1200",
-                        "-o",
-                        str(archive_path),
-                        url,
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                break
-            except Exception as exc:
-                last_error = exc
-                if archive_path.exists():
-                    archive_path.unlink()
-        else:
-            raise RuntimeError("failed to download CIFAR-10 archive") from last_error
-
-    with tarfile.open(archive_path, "r:gz") as handle:
-        handle.extractall(path=data_dir)
-
-
 def _build_raw_dataset(dataset_name: str, data_dir: Path, train: bool):
-    if dataset_name == "mnist":
-        return datasets.MNIST(root=data_dir, train=train, download=True)
-    if dataset_name == "cifar10":
-        _ensure_cifar10_downloaded(data_dir)
-        return datasets.CIFAR10(root=data_dir, train=train, download=False)
-    raise ValueError(f"unsupported dataset {dataset_name}")
+    return build_image_dataset(dataset_name=dataset_name, data_dir=data_dir, train=train)
 
 
 def _prepare_image(image: Image.Image, image_size: int) -> Image.Image:
