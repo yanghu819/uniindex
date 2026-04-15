@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
 from .data import build_loader, split_path
-from .eval import _decode_image_tokens, _load_stage2, sample_unified
+from .eval import _decode_image_tokens, _load_stage2, _sample_unified_with_logits, constrained_text_label_values, sample_unified
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import build_schedule_tables
 from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state
@@ -75,7 +75,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     labels = batch["label"].to(device)
     decoded_real = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
 
-    sampled_text = sample_unified(
+    sampled_tokens, final_logits = _sample_unified_with_logits(
         model=model,
         codebook_size=codebook_size,
         text_vocab_size=text_vocab_size,
@@ -89,9 +89,15 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         condition_image_tokens=image_tokens,
         condition_text_tokens=None,
-    )[:, image_seq_len:] - codebook_size
+    )
+    sampled_text = sampled_tokens[:, image_seq_len:] - codebook_size
     sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
     gt_text_strings = decode_text_tokens(text_tokens, text_metadata)
+    constrained_labels = constrained_text_label_values(
+        final_logits[:, image_seq_len:],
+        text_metadata,
+        codebook_size=codebook_size,
+    )
 
     class_text_tokens = text_metadata.label_text_tokens.to(device)
     sampled_images = sample_unified(
@@ -136,7 +142,14 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
 
     image_to_text_grid = _make_grid(
         images=[_tensor_to_pil(image) for image in decoded_real[:16]],
-        captions=[f"gt={gt}\npred={pred}" for gt, pred in zip(gt_text_strings[:16], sampled_text_strings[:16])],
+        captions=[
+            f"gt={gt}\nfree={pred}\ncls={label_to_string.get(int(label), str(int(label)))}"
+            for gt, pred, label in zip(
+                gt_text_strings[:16],
+                sampled_text_strings[:16],
+                constrained_labels[:16].tolist(),
+            )
+        ],
         cols=4,
     )
     text_to_image_grid = _make_grid(
@@ -168,8 +181,22 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         "text_to_image_grid": str(text_to_image_path),
         "unconditional_grid": str(unconditional_path),
         "image_to_text_pairs": [
-            {"gt": gt, "pred": pred} for gt, pred in zip(gt_text_strings[:16], sampled_text_strings[:16])
+            {
+                "gt": gt,
+                "pred": pred,
+                "constrained_label": label_to_string.get(int(label), str(int(label))),
+            }
+            for gt, pred, label in zip(
+                gt_text_strings[:16],
+                sampled_text_strings[:16],
+                constrained_labels[:16].tolist(),
+            )
         ],
+        "image_to_text_batch_constrained_accuracy": float((constrained_labels == labels).float().mean().item()),
+        "image_to_text_batch_position_accuracy": (
+            sampled_text.eq(text_tokens).logical_and(text_tokens.ne(text_metadata.pad_id)).float().sum(dim=0)
+            / text_tokens.ne(text_metadata.pad_id).float().sum(dim=0).clamp_min(1.0)
+        ).tolist(),
         "text_to_image_pairs": [
             {"condition": condition, "classifier_pred": label_to_string.get(int(pred), str(int(pred)))}
             for condition, pred in zip(text_metadata.label_strings[:10], generated_preds[:10].tolist())
