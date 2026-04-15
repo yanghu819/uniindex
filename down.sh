@@ -30,4 +30,4 @@ fi
 
 mkdir -p "$ROOT/.cache" "$UV_PYTHON_INSTALL_DIR" "$ROOT/data" "$ROOT/artifacts" "$ROOT/models" "$ROOT/runs" "$ROOT/logs"
 
-uv run --project "$ROOT" uniindex prepare --config "$CONFIG"
+"$ROOT/.venv/bin/python" -m uniindex.cli prepare --config "$CONFIG"
