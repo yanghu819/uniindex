@@ -7,6 +7,7 @@ export UV_CACHE_DIR="$ROOT/.cache/uv"
 export UV_PYTHON_INSTALL_DIR="$ROOT/.cache/uv-python"
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-600}"
 export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-600}"
+export PIP_CACHE_DIR="$ROOT/.cache/pip"
 export HF_HOME="$ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$ROOT/.cache/huggingface/hub"
 export TRANSFORMERS_CACHE="$ROOT/.cache/huggingface/transformers"
@@ -20,6 +21,7 @@ export PATH="$ROOT/.cache/uv-bin:$PATH"
 mkdir -p \
   "$UV_CACHE_DIR" \
   "$UV_PYTHON_INSTALL_DIR" \
+  "$PIP_CACHE_DIR" \
   "$HF_HUB_CACHE" \
   "$TRANSFORMERS_CACHE" \
   "$TORCH_HOME" \
