@@ -8,6 +8,7 @@ export UV_PYTHON_INSTALL_DIR="$ROOT/.cache/uv-python"
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-600}"
 export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-600}"
 export PIP_CACHE_DIR="$ROOT/.cache/pip"
+export UNIINDEX_WHEELHOUSE_MANIFEST="${UNIINDEX_WHEELHOUSE_MANIFEST:-manifest.sha256}"
 export HF_HOME="$ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$ROOT/.cache/huggingface/hub"
 export TRANSFORMERS_CACHE="$ROOT/.cache/huggingface/transformers"
@@ -22,6 +23,7 @@ mkdir -p \
   "$UV_CACHE_DIR" \
   "$UV_PYTHON_INSTALL_DIR" \
   "$PIP_CACHE_DIR" \
+  "$ROOT/.cache/wheelhouse" \
   "$HF_HUB_CACHE" \
   "$TRANSFORMERS_CACHE" \
   "$TORCH_HOME" \
@@ -39,10 +41,40 @@ if [[ ! -d "$ROOT/.venv" ]]; then
 fi
 
 PYTHON_BIN="$ROOT/.venv/bin/python"
+WHEELHOUSE_CACHE_DIR="$ROOT/.cache/wheelhouse"
 
 if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
   "$PYTHON_BIN" -m ensurepip --upgrade
 fi
+
+download_wheelhouse() {
+  local base_url="$1"
+  local manifest_path="$WHEELHOUSE_CACHE_DIR/$UNIINDEX_WHEELHOUSE_MANIFEST"
+  mkdir -p "$WHEELHOUSE_CACHE_DIR"
+  curl -fL --retry 20 --retry-delay 5 --retry-all-errors \
+    -o "$manifest_path" \
+    "$base_url/$UNIINDEX_WHEELHOUSE_MANIFEST"
+  while read -r sha filename; do
+    [[ -z "${sha:-}" || -z "${filename:-}" ]] && continue
+    if [[ ! -f "$WHEELHOUSE_CACHE_DIR/$filename" ]]; then
+      curl -fL --retry 20 --retry-delay 5 --retry-all-errors \
+        -o "$WHEELHOUSE_CACHE_DIR/$filename" \
+        "$base_url/$filename"
+    fi
+  done < "$manifest_path"
+  (cd "$WHEELHOUSE_CACHE_DIR" && sha256sum -c "$UNIINDEX_WHEELHOUSE_MANIFEST")
+}
+
+install_torch_stack() {
+  local find_links="$1"
+  "$PYTHON_BIN" -m pip install \
+    --timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries 20 \
+    --no-index \
+    --find-links "$find_links" \
+    torch==2.6.0 \
+    torchvision==0.21.0
+}
 
 if [[ "${UNIINDEX_SETUP_USE_PIP:-0}" != "1" ]]; then
   if uv sync --project "$ROOT" --extra dev --frozen; then
@@ -52,13 +84,21 @@ if [[ "${UNIINDEX_SETUP_USE_PIP:-0}" != "1" ]]; then
 fi
 
 "$PYTHON_BIN" -m pip install --upgrade pip
-"$PYTHON_BIN" -m pip install \
-  --timeout "$PIP_DEFAULT_TIMEOUT" \
-  --retries 20 \
-  --index-url https://download.pytorch.org/whl/cu124 \
-  --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-  torch==2.6.0 \
-  torchvision==0.21.0
+
+if [[ -n "${UNIINDEX_WHEELHOUSE_BASE_URL:-}" ]]; then
+  download_wheelhouse "$UNIINDEX_WHEELHOUSE_BASE_URL"
+  install_torch_stack "$WHEELHOUSE_CACHE_DIR"
+elif [[ -n "${UNIINDEX_WHEELHOUSE_DIR:-}" ]]; then
+  install_torch_stack "$UNIINDEX_WHEELHOUSE_DIR"
+else
+  "$PYTHON_BIN" -m pip install \
+    --timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries 20 \
+    --index-url https://download.pytorch.org/whl/cu124 \
+    --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    torch==2.6.0 \
+    torchvision==0.21.0
+fi
 "$PYTHON_BIN" -m pip install \
   --timeout "$PIP_DEFAULT_TIMEOUT" \
   --retries 20 \
