@@ -40,7 +40,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex smoke --config "$CONFIG"
+    "$ROOT/.venv/bin/python" -m uniindex.cli smoke --config "$CONFIG"
     ;;
   ablate-compact)
     COMPACT_CONFIG="configs/smoke_compact_clean.yaml"
@@ -60,7 +60,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex ablate-compact --compact-config "$COMPACT_CONFIG" --full-config "$FULL_CONFIG"
+    "$ROOT/.venv/bin/python" -m uniindex.cli ablate-compact --compact-config "$COMPACT_CONFIG" --full-config "$FULL_CONFIG"
     ;;
   stage1)
     CONFIG="configs/default.yaml"
@@ -75,7 +75,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex train --config "$CONFIG" --stage stage1
+    "$ROOT/.venv/bin/python" -m uniindex.cli train --config "$CONFIG" --stage stage1
     ;;
   stage2)
     CONFIG="configs/default.yaml"
@@ -90,7 +90,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex train --config "$CONFIG" --stage stage2
+    "$ROOT/.venv/bin/python" -m uniindex.cli train --config "$CONFIG" --stage stage2
     ;;
   eval)
     CONFIG="configs/default.yaml"
@@ -105,7 +105,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex eval --config "$CONFIG"
+    "$ROOT/.venv/bin/python" -m uniindex.cli eval --config "$CONFIG"
     ;;
   visualize)
     CONFIG="configs/default.yaml"
@@ -120,7 +120,7 @@ case "$MODE" in
           ;;
       esac
     done
-    uv run --project "$ROOT" uniindex visualize --config "$CONFIG"
+    "$ROOT/.venv/bin/python" -m uniindex.cli visualize --config "$CONFIG"
     ;;
   *)
     echo "Unknown mode: $MODE" >&2
