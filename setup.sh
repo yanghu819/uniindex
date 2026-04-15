@@ -85,8 +85,7 @@ install_torch_stack() {
     --retries 20 \
     --no-index \
     --find-links "$find_links" \
-    torch==2.6.0 \
-    torchvision==0.21.0
+    torch==2.6.0
 }
 
 install_runtime_stack_offline() {
@@ -137,14 +136,15 @@ else
     --retries 20 \
     --index-url https://download.pytorch.org/whl/cu124 \
     --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-    torch==2.6.0 \
-    torchvision==0.21.0
+    torch==2.6.0
   install_runtime_stack_online
 fi
 
 if [[ "${UNIINDEX_INSTALL_DEV:-0}" == "1" ]]; then
   install_dev_stack_online
 fi
+
+"$PYTHON_BIN" -m pip uninstall -y torchvision >/dev/null 2>&1 || true
 
 "$PYTHON_BIN" -m pip install \
   --timeout "$PIP_DEFAULT_TIMEOUT" \
