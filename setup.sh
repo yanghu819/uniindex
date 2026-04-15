@@ -38,14 +38,18 @@ if [[ ! -d "$ROOT/.venv" ]]; then
   uv venv "$ROOT/.venv"
 fi
 
+PYTHON_BIN="$ROOT/.venv/bin/python"
+
+if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+  "$PYTHON_BIN" -m ensurepip --upgrade
+fi
+
 if [[ "${UNIINDEX_SETUP_USE_PIP:-0}" != "1" ]]; then
   if uv sync --project "$ROOT" --extra dev --frozen; then
     echo "Environment ready at $ROOT/.venv"
     exit 0
   fi
 fi
-
-PYTHON_BIN="$ROOT/.venv/bin/python"
 
 "$PYTHON_BIN" -m pip install --upgrade pip
 "$PYTHON_BIN" -m pip install \
