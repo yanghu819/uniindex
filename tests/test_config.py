@@ -10,6 +10,7 @@ def test_load_smoke_config():
     assert config.train.image_to_text_text_time_power is None
     assert config.text.strings[0] == "zero"
     assert config.schedule.kind == "empirical"
+    assert config.train.text_sequence_weight == 0.25
 
 
 def test_load_understanding_config():
@@ -23,6 +24,7 @@ def test_load_joint_work_config():
     assert config.train.stage2_joint_repeats == 2
     assert config.train.stage2_text_to_image_repeats == 2
     assert config.train.stage2_image_to_text_repeats == 4
+    assert config.train.text_sequence_weight == 0.5
 
 
 def test_load_fullvocab_clean_config():
