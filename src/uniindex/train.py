@@ -14,7 +14,7 @@ from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_devi
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
 from .task_schedule import task_for_step
-from .text import metadata_from_state
+from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
@@ -63,7 +63,7 @@ def _task_time_schedule(
     task: str,
 ) -> torch.Tensor:
     text_time = config.train.text_time_power
-    if schedule_tables["kind"] == "power" and task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
+    if task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
         text_time = config.train.image_to_text_text_time_power
     return apply_schedule(
         progress=progress,
@@ -86,6 +86,19 @@ def _masked_text_loss(
     return losses[valid].mean()
 
 
+def _sequence_text_loss(
+    text_logits: torch.Tensor,
+    text_targets: torch.Tensor,
+    candidate_text_targets: torch.Tensor,
+) -> torch.Tensor:
+    scores = sequence_candidate_scores(text_logits, candidate_text_targets)
+    matches = text_targets.unsqueeze(1).eq(candidate_text_targets.unsqueeze(0)).all(dim=-1)
+    if not torch.all(matches.any(dim=1)):
+        raise ValueError("each text target row must exactly match one canonical text candidate")
+    target_indices = matches.float().argmax(dim=1)
+    return F.cross_entropy(scores, target_indices)
+
+
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -96,16 +109,27 @@ def _loss_for_task(
     joint_weight: float,
     text_weight: float,
     text_pad_id: int,
+    label_text_tokens: torch.Tensor,
+    text_sequence_weight: float,
     task: str,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     masked = mask_logits(logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
     img_logits = masked[:, :image_seq_len].reshape(-1, masked.shape[-1])
     img_targets = targets[:, :image_seq_len].reshape(-1)
-    txt_logits = masked[:, image_seq_len:].reshape(-1, masked.shape[-1])
-    txt_targets = targets[:, image_seq_len:].reshape(-1)
+    text_logits = masked[:, image_seq_len:]
+    txt_logits = text_logits.reshape(-1, masked.shape[-1])
+    text_targets = targets[:, image_seq_len:]
+    txt_targets = text_targets.reshape(-1)
 
     image_loss = F.cross_entropy(img_logits, img_targets)
     text_loss = _masked_text_loss(txt_logits, txt_targets, text_pad_token=codebook_size + text_pad_id)
+    sequence_loss = torch.zeros((), device=masked.device)
+    if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
+        sequence_loss = _sequence_text_loss(
+            text_logits=text_logits,
+            text_targets=text_targets,
+            candidate_text_targets=label_text_tokens.to(masked.device),
+        )
 
     if task == "joint":
         loss = joint_weight * image_loss + text_weight * text_loss
@@ -113,7 +137,13 @@ def _loss_for_task(
         loss = image_loss
     else:
         loss = text_loss
-    return loss, {"image_loss": float(image_loss.item()), "text_loss": float(text_loss.item())}
+    if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
+        loss = loss + text_sequence_weight * sequence_loss
+    return loss, {
+        "image_loss": float(image_loss.item()),
+        "text_loss": float(text_loss.item()),
+        "sequence_loss": float(sequence_loss.item()),
+    }
 
 
 def _save_checkpoint(
@@ -156,6 +186,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     text_vocab_size = int(text_metadata.vocab_size)
     vocab_size = unified_vocab_size(codebook_size, text_vocab_size)
     schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
+    shifted_label_tokens = shifted_label_text_tokens(text_metadata, token_offset=codebook_size)
 
     loader = build_loader(
         split_path(config, "train"),
@@ -218,6 +249,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             joint_weight=config.train.joint_weight,
             text_weight=config.train.text_weight,
             text_pad_id=text_metadata.pad_id,
+            label_text_tokens=shifted_label_tokens,
+            text_sequence_weight=config.train.text_sequence_weight,
             task=task,
         )
 
