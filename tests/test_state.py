@@ -36,6 +36,36 @@ def test_apply_schedule_uses_different_powers_per_modality():
     assert torch.allclose(t_pos, expected, atol=1e-6)
 
 
+def test_apply_schedule_uses_progress_warp_under_empirical_tables():
+    progress = torch.tensor([0.25, 0.81])
+    modality_ids = torch.tensor([0, 1])
+    schedule_tables = {
+        "kind": "empirical",
+        "image": {
+            "progress_grid": torch.tensor([0.0, 0.5, 1.0]),
+            "t_grid": torch.tensor([0.0, 0.5, 1.0]),
+        },
+        "text": {
+            "progress_grid": torch.tensor([0.0, 0.5, 1.0]),
+            "t_grid": torch.tensor([0.0, 0.5, 1.0]),
+        },
+    }
+    t_pos = apply_schedule(
+        progress,
+        modality_ids,
+        schedule_tables,
+        image_time_power=1.0,
+        text_time_power=0.5,
+    )
+    expected = torch.tensor(
+        [
+            [0.25, 0.5],
+            [0.81, 0.9],
+        ]
+    )
+    assert torch.allclose(t_pos, expected, atol=1e-6)
+
+
 def test_restore_image_tokens_maps_compact_ids_back_to_original_ids():
     tokens = torch.tensor([[0, 2, 1]])
     tokenizer_state = {"original_token_ids": torch.tensor([7, 11, 19])}
