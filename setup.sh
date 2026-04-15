@@ -38,9 +38,11 @@ if [[ ! -d "$ROOT/.venv" ]]; then
   uv venv "$ROOT/.venv"
 fi
 
-if uv sync --project "$ROOT" --extra dev --frozen; then
-  echo "Environment ready at $ROOT/.venv"
-  exit 0
+if [[ "${UNIINDEX_SETUP_USE_PIP:-0}" != "1" ]]; then
+  if uv sync --project "$ROOT" --extra dev --frozen; then
+    echo "Environment ready at $ROOT/.venv"
+    exit 0
+  fi
 fi
 
 PYTHON_BIN="$ROOT/.venv/bin/python"
