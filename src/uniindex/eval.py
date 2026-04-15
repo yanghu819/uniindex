@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -14,7 +15,13 @@ from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, restore_image_tokens, sample_masked_noise
-from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state
+from .text import (
+    decode_text_tokens,
+    label_values_from_text_tokens,
+    metadata_from_state,
+    sequence_candidate_scores,
+    shifted_label_text_tokens,
+)
 from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
@@ -52,7 +59,7 @@ def _decode_image_tokens(tokenizer, image_tokens: torch.Tensor, tokenizer_state:
 
 
 @torch.inference_mode()
-def sample_unified(
+def _sample_unified_with_logits(
     model: UnifiedDenoiser,
     codebook_size: int,
     text_vocab_size: int,
@@ -126,7 +133,56 @@ def sample_unified(
     )
     final_logits = model(z_t, final_t_pos, modality_ids)
     final_logits = mask_logits(final_logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
-    return final_logits.argmax(dim=-1)
+    return final_logits.argmax(dim=-1), final_logits
+
+
+@torch.inference_mode()
+def sample_unified(
+    model: UnifiedDenoiser,
+    codebook_size: int,
+    text_vocab_size: int,
+    image_seq_len: int,
+    text_seq_len: int,
+    schedule_tables: dict,
+    temperature: float,
+    steps: int,
+    image_time_power: float,
+    text_time_power: float,
+    image_to_text_text_time_power: float | None,
+    batch_size: int | None = None,
+    condition_image_tokens: torch.Tensor | None = None,
+    condition_text_tokens: torch.Tensor | None = None,
+) -> torch.Tensor:
+    tokens, _ = _sample_unified_with_logits(
+        model=model,
+        codebook_size=codebook_size,
+        text_vocab_size=text_vocab_size,
+        image_seq_len=image_seq_len,
+        text_seq_len=text_seq_len,
+        schedule_tables=schedule_tables,
+        temperature=temperature,
+        steps=steps,
+        image_time_power=image_time_power,
+        text_time_power=text_time_power,
+        image_to_text_text_time_power=image_to_text_text_time_power,
+        batch_size=batch_size,
+        condition_image_tokens=condition_image_tokens,
+        condition_text_tokens=condition_text_tokens,
+    )
+    return tokens
+
+
+def constrained_text_label_values(
+    text_logits: torch.Tensor,
+    text_metadata,
+    *,
+    codebook_size: int,
+) -> torch.Tensor:
+    candidate_tokens = shifted_label_text_tokens(text_metadata, token_offset=codebook_size).to(text_logits.device)
+    scores = sequence_candidate_scores(text_logits, candidate_tokens)
+    indices = scores.argmax(dim=1)
+    label_values = torch.tensor(text_metadata.label_values, dtype=torch.long, device=text_logits.device)
+    return label_values.index_select(0, indices)
 
 
 @torch.inference_mode()
@@ -163,7 +219,11 @@ def evaluate(
     image_to_text_exact = 0
     image_to_text_token_correct = 0
     image_to_text_token_total = 0
+    image_to_text_constrained_correct = 0
     text_to_image_correct = 0
+    image_to_text_position_correct = torch.zeros(text_seq_len, dtype=torch.long)
+    image_to_text_position_total = torch.zeros(text_seq_len, dtype=torch.long)
+    generated_text_counter: Counter[str] = Counter()
     total = 0
 
     for batch in tqdm(test_loader, desc="eval"):
@@ -175,7 +235,7 @@ def evaluate(
         ceiling_pred = classify_images(classifier, decoded, config.dataset.name)
         ceiling_correct += (ceiling_pred == labels).sum().item()
 
-        sampled_text = sample_unified(
+        sampled_tokens, final_logits = _sample_unified_with_logits(
             model=model,
             codebook_size=codebook_size,
             text_vocab_size=text_vocab_size,
@@ -189,11 +249,21 @@ def evaluate(
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
             condition_image_tokens=image_tokens,
             condition_text_tokens=None,
-        )[:, image_seq_len:] - codebook_size
+        )
+        sampled_text = sampled_tokens[:, image_seq_len:] - codebook_size
         image_to_text_exact += sampled_text.eq(text_tokens).all(dim=1).sum().item()
         valid_text = text_tokens.ne(text_metadata.pad_id)
         image_to_text_token_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
         image_to_text_token_total += valid_text.sum().item()
+        image_to_text_position_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum(dim=0).cpu()
+        image_to_text_position_total += valid_text.sum(dim=0).cpu()
+        generated_text_counter.update(decode_text_tokens(sampled_text, text_metadata))
+        constrained_values = constrained_text_label_values(
+            final_logits[:, image_seq_len:],
+            text_metadata,
+            codebook_size=codebook_size,
+        )
+        image_to_text_constrained_correct += (constrained_values == labels).sum().item()
 
         sampled_images = sample_unified(
             model=model,
@@ -242,6 +312,7 @@ def evaluate(
         "tokenizer_ceiling": ceiling_correct / max(total, 1),
         "image_to_text_exact_match": image_to_text_exact / max(total, 1),
         "image_to_text_token_accuracy": image_to_text_token_correct / max(image_to_text_token_total, 1),
+        "image_to_text_label_accuracy_constrained": image_to_text_constrained_correct / max(total, 1),
         "text_to_image_accuracy": text_to_image_correct / max(total, 1),
         "unconditional_consistency": consistency,
         "image_to_label_accuracy": image_to_text_exact / max(total, 1),
@@ -252,8 +323,24 @@ def evaluate(
     with metrics_path.open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
 
+    diagnostics = {
+        "image_to_text_position_accuracy": [
+            correct / max(total_count, 1)
+            for correct, total_count in zip(
+                image_to_text_position_correct.tolist(),
+                image_to_text_position_total.tolist(),
+            )
+        ],
+        "image_to_text_generated_text_counts": dict(generated_text_counter.most_common(32)),
+        "label_strings": list(text_metadata.label_strings),
+    }
+    diagnostics_path = run_context.log_path("diagnostics.json")
+    with diagnostics_path.open("w", encoding="utf-8") as handle:
+        json.dump(diagnostics, handle, indent=2)
+
     preview = {
         "generated_text_strings": decode_text_tokens(sampled[:, image_seq_len:] - codebook_size, text_metadata),
+        "image_to_text_generated_text_counts": dict(generated_text_counter.most_common(32)),
         "label_strings": list(text_metadata.label_strings),
     }
     preview_path = run_context.log_path("text_preview.json")
