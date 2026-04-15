@@ -42,6 +42,19 @@ fi
 
 PYTHON_BIN="$ROOT/.venv/bin/python"
 WHEELHOUSE_CACHE_DIR="$ROOT/.cache/wheelhouse"
+RUNTIME_REQUIREMENTS=(
+  huggingface-hub==0.35.3
+  numpy==2.2.6
+  pillow==11.3.0
+  pyyaml==6.0.3
+  safetensors==0.6.2
+  tqdm==4.67.1
+  transformers==4.57.1
+)
+DEV_REQUIREMENTS=(
+  pytest==8.4.2
+  ruff==0.13.1
+)
 
 if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
   "$PYTHON_BIN" -m ensurepip --upgrade
@@ -76,6 +89,32 @@ install_torch_stack() {
     torchvision==0.21.0
 }
 
+install_runtime_stack_offline() {
+  local find_links="$1"
+  "$PYTHON_BIN" -m pip install \
+    --timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries 20 \
+    --no-index \
+    --find-links "$find_links" \
+    "${RUNTIME_REQUIREMENTS[@]}"
+}
+
+install_runtime_stack_online() {
+  "$PYTHON_BIN" -m pip install \
+    --timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries 20 \
+    --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    "${RUNTIME_REQUIREMENTS[@]}"
+}
+
+install_dev_stack_online() {
+  "$PYTHON_BIN" -m pip install \
+    --timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries 20 \
+    --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    "${DEV_REQUIREMENTS[@]}"
+}
+
 if [[ "${UNIINDEX_SETUP_USE_PIP:-0}" != "1" ]]; then
   if uv sync --project "$ROOT" --extra dev --frozen; then
     echo "Environment ready at $ROOT/.venv"
@@ -88,8 +127,10 @@ fi
 if [[ -n "${UNIINDEX_WHEELHOUSE_BASE_URL:-}" ]]; then
   download_wheelhouse "$UNIINDEX_WHEELHOUSE_BASE_URL"
   install_torch_stack "$WHEELHOUSE_CACHE_DIR"
+  install_runtime_stack_offline "$WHEELHOUSE_CACHE_DIR"
 elif [[ -n "${UNIINDEX_WHEELHOUSE_DIR:-}" ]]; then
   install_torch_stack "$UNIINDEX_WHEELHOUSE_DIR"
+  install_runtime_stack_offline "$UNIINDEX_WHEELHOUSE_DIR"
 else
   "$PYTHON_BIN" -m pip install \
     --timeout "$PIP_DEFAULT_TIMEOUT" \
@@ -98,20 +139,13 @@ else
     --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
     torch==2.6.0 \
     torchvision==0.21.0
+  install_runtime_stack_online
 fi
-"$PYTHON_BIN" -m pip install \
-  --timeout "$PIP_DEFAULT_TIMEOUT" \
-  --retries 20 \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-  huggingface-hub==0.35.3 \
-  numpy==2.2.6 \
-  pillow==11.3.0 \
-  pyyaml==6.0.3 \
-  safetensors==0.6.2 \
-  tqdm==4.67.1 \
-  transformers==4.57.1 \
-  pytest==8.4.2 \
-  ruff==0.13.1
+
+if [[ "${UNIINDEX_INSTALL_DEV:-0}" == "1" ]]; then
+  install_dev_stack_online
+fi
+
 "$PYTHON_BIN" -m pip install \
   --timeout "$PIP_DEFAULT_TIMEOUT" \
   --retries 20 \
