@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import torch
@@ -10,6 +11,7 @@ from .classifier import train_or_load_classifier
 from .config import ProjectConfig
 from .datasets import build_image_dataset
 from .runtime import ensure_project_dirs, resolve_device
+from .text import build_text_metadata, encode_labels, text_state_dict
 from .tokenizer import BaseVisionTokenizer, build_tokenizer
 
 
@@ -17,6 +19,7 @@ class TokenizedImageDataset(Dataset):
     def __init__(self, path: Path) -> None:
         payload = torch.load(path)
         self.image_tokens = payload["image_tokens"].long()
+        self.text_tokens = payload["text_tokens"].long()
         self.labels = payload["labels"].long()
         self.grid_shape = tuple(payload["grid_shape"])
         self.image_seq_len = int(payload["image_seq_len"])
@@ -28,6 +31,7 @@ class TokenizedImageDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         return {
             "image_tokens": self.image_tokens[index],
+            "text_tokens": self.text_tokens[index],
             "label": self.labels[index],
         }
 
@@ -54,9 +58,12 @@ def _artifact_namespace(config: ProjectConfig) -> str:
     train_limit = "all" if config.dataset.train_limit is None else str(config.dataset.train_limit)
     test_limit = "all" if config.dataset.test_limit is None else str(config.dataset.test_limit)
     compact = "1" if tok.compact_vocab else "0"
+    text_signature = hashlib.sha1(
+        f"{config.text.kind}|{config.text.pad_token}|{'|'.join(config.text.strings or [])}".encode("utf-8")
+    ).hexdigest()[:10]
     return (
         f"{config.dataset.name}-"
-        f"{tok.kind}-{model_slug}-img{tok.image_size}-train{train_limit}-test{test_limit}-compact{compact}"
+        f"{tok.kind}-{model_slug}-img{tok.image_size}-train{train_limit}-test{test_limit}-compact{compact}-text{text_signature}"
     )
 
 
@@ -71,6 +78,7 @@ def split_path(config: ProjectConfig, split: str) -> Path:
 def _encode_split(
     dataset,
     tokenizer: BaseVisionTokenizer,
+    text_metadata,
     image_size: int,
     limit: int | None,
     out_path: Path,
@@ -96,9 +104,11 @@ def _encode_split(
 
     image_tokens = torch.cat(token_batches, dim=0)
     labels = torch.cat(label_batches, dim=0)
+    text_tokens = encode_labels(labels, text_metadata).cpu()
     torch.save(
         {
             "image_tokens": image_tokens,
+            "text_tokens": text_tokens,
             "labels": labels,
             "grid_shape": grid_shape,
             "image_seq_len": image_tokens.shape[1],
@@ -148,6 +158,12 @@ def prepare_assets(config: ProjectConfig) -> None:
     tokenizer_device = resolve_device(config.tokenizer.device, config.train.gpu_index)
     tokenizer = build_tokenizer(config, device=tokenizer_device)
     tokenizer_artifacts = tokenizer.artifacts()
+    text_metadata = build_text_metadata(
+        kind=config.text.kind,
+        label_values=config.labels.values,
+        strings=config.text.strings or [],
+        pad_token=config.text.pad_token,
+    )
 
     resolved_grid_shape = None
     image_seq_len = None
@@ -160,6 +176,7 @@ def prepare_assets(config: ProjectConfig) -> None:
             resolved_grid_shape, image_seq_len = _encode_split(
                 dataset=dataset,
                 tokenizer=tokenizer,
+                text_metadata=text_metadata,
                 image_size=config.tokenizer.image_size,
                 limit=limit,
                 out_path=out_path,
@@ -188,6 +205,7 @@ def prepare_assets(config: ProjectConfig) -> None:
             "original_token_ids": original_token_ids,
             "original_codebook_size": original_codebook_size,
             "compact_vocab": config.tokenizer.compact_vocab,
+            **text_state_dict(text_metadata),
         },
         tokenizer_state_path(config),
     )

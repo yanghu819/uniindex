@@ -30,33 +30,17 @@ def mix_flm_noise(x1: torch.Tensor, t: torch.Tensor, valid_token_mask: torch.Ten
     return (1.0 - weight) * noise + weight * x1
 
 
-def apply_time_schedule(
-    progress: torch.Tensor,
-    modality_ids: torch.Tensor,
-    image_time_power: float,
-    label_time_power: float,
-) -> torch.Tensor:
-    if progress.dim() != 1:
-        raise ValueError(f"expected progress to have shape (batch,), got {tuple(progress.shape)}")
-    powers = torch.where(
-        modality_ids.long() == 0,
-        torch.full_like(modality_ids, float(image_time_power), dtype=torch.float32),
-        torch.full_like(modality_ids, float(label_time_power), dtype=torch.float32),
-    ).to(progress.device)
-    return progress[:, None].pow(powers.unsqueeze(0))
-
-
 def condition_clean_timesteps(
     t_pos: torch.Tensor,
     image_seq_len: int,
     *,
     condition_image: bool,
-    condition_label: bool,
+    condition_text: bool,
 ) -> torch.Tensor:
     adjusted = t_pos.clone()
     if condition_image:
         adjusted[:, :image_seq_len] = 1.0
-    if condition_label:
+    if condition_text:
         adjusted[:, image_seq_len:] = 1.0
     return adjusted
 

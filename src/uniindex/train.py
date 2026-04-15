@@ -11,8 +11,10 @@ from .data import build_loader, load_tokenizer_state, split_path
 from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_targets, unified_vocab_size
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
-from .state import apply_time_schedule, build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
+from .schedule import apply_schedule, build_schedule_tables
+from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
 from .task_schedule import task_for_step
+from .text import metadata_from_state
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
@@ -36,13 +38,13 @@ def _build_zt(
     if task == "joint":
         return mix_flm_noise(x1, t_pos, valid_token_mask)
     z_t = x1.clone()
-    if task == "label_to_image":
+    if task == "text_to_image":
         z_t[:, :image_seq_len] = mix_flm_noise(
             x1[:, :image_seq_len],
             t_pos[:, :image_seq_len],
             valid_token_mask[:image_seq_len],
         )
-    elif task == "image_to_label":
+    elif task == "image_to_text":
         z_t[:, image_seq_len:] = mix_flm_noise(
             x1[:, image_seq_len:],
             t_pos[:, image_seq_len:],
@@ -53,44 +55,65 @@ def _build_zt(
     return z_t
 
 
-def _task_time_schedule(config: ProjectConfig, progress: torch.Tensor, modality_ids: torch.Tensor, task: str) -> torch.Tensor:
-    label_time_power = config.train.label_time_power
-    if task == "image_to_label" and config.train.image_to_label_label_time_power is not None:
-        label_time_power = config.train.image_to_label_label_time_power
-    return apply_time_schedule(
+def _task_time_schedule(
+    config: ProjectConfig,
+    progress: torch.Tensor,
+    modality_ids: torch.Tensor,
+    schedule_tables: dict,
+    task: str,
+) -> torch.Tensor:
+    text_time = config.train.text_time_power
+    if schedule_tables["kind"] == "power" and task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
+        text_time = config.train.image_to_text_text_time_power
+    return apply_schedule(
         progress=progress,
         modality_ids=modality_ids,
+        schedule_tables=schedule_tables,
         image_time_power=config.train.image_time_power,
-        label_time_power=label_time_power,
+        text_time_power=text_time,
     )
+
+
+def _masked_text_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    text_pad_token: int,
+) -> torch.Tensor:
+    losses = F.cross_entropy(logits, targets, reduction="none")
+    valid = targets.ne(text_pad_token)
+    if not torch.any(valid):
+        return losses.mean()
+    return losses[valid].mean()
 
 
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
     image_seq_len: int,
+    text_seq_len: int,
     codebook_size: int,
-    num_labels: int,
+    text_vocab_size: int,
     joint_weight: float,
-    label_weight: float,
+    text_weight: float,
+    text_pad_id: int,
     task: str,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    masked = mask_logits(logits, image_seq_len, codebook_size, num_labels)
+    masked = mask_logits(logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
     img_logits = masked[:, :image_seq_len].reshape(-1, masked.shape[-1])
     img_targets = targets[:, :image_seq_len].reshape(-1)
-    lbl_logits = masked[:, image_seq_len:].reshape(-1, masked.shape[-1])
-    lbl_targets = targets[:, image_seq_len:].reshape(-1)
+    txt_logits = masked[:, image_seq_len:].reshape(-1, masked.shape[-1])
+    txt_targets = targets[:, image_seq_len:].reshape(-1)
 
     image_loss = F.cross_entropy(img_logits, img_targets)
-    label_loss = F.cross_entropy(lbl_logits, lbl_targets)
+    text_loss = _masked_text_loss(txt_logits, txt_targets, text_pad_token=codebook_size + text_pad_id)
 
     if task == "joint":
-        loss = joint_weight * image_loss + label_weight * label_loss
-    elif task == "label_to_image":
+        loss = joint_weight * image_loss + text_weight * text_loss
+    elif task == "text_to_image":
         loss = image_loss
     else:
-        loss = label_loss
-    return loss, {"image_loss": float(image_loss.item()), "label_loss": float(label_loss.item())}
+        loss = text_loss
+    return loss, {"image_loss": float(image_loss.item()), "text_loss": float(text_loss.item())}
 
 
 def _save_checkpoint(
@@ -126,10 +149,13 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     run_context.set_device(device)
 
     tokenizer_state = load_tokenizer_state(config)
+    text_metadata = metadata_from_state(tokenizer_state)
     codebook_size = int(tokenizer_state["codebook_size"])
-    image_seq_len = int(torch.load(split_path(config, "train"))["image_seq_len"])
-    num_labels = len(config.labels.values)
-    vocab_size = unified_vocab_size(codebook_size, num_labels)
+    image_seq_len = int(tokenizer_state["image_seq_len"])
+    text_seq_len = int(text_metadata.seq_len)
+    text_vocab_size = int(text_metadata.vocab_size)
+    vocab_size = unified_vocab_size(codebook_size, text_vocab_size)
+    schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
 
     loader = build_loader(
         split_path(config, "train"),
@@ -141,7 +167,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
 
     model = UnifiedDenoiser(
         input_dim=vocab_size,
-        seq_len=image_seq_len + 1,
+        seq_len=image_seq_len + text_seq_len,
         vocab_size=vocab_size,
         d_model=config.model.d_model,
         n_heads=config.model.n_heads,
@@ -160,25 +186,25 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
     total_steps = config.train.stage1_steps if stage == "stage1" else config.train.stage2_steps
-    modality_ids = position_modalities(image_seq_len).to(device)
-    valid_token_mask = position_valid_token_mask(image_seq_len, codebook_size, num_labels).to(device)
+    modality_ids = position_modalities(image_seq_len, text_seq_len).to(device)
+    valid_token_mask = position_valid_token_mask(image_seq_len, text_seq_len, codebook_size, text_vocab_size).to(device)
     train_log = run_context.log_path("train.jsonl")
 
     model.train()
     for step in tqdm(range(1, total_steps + 1), desc=stage):
         batch = next(train_iter)
         image_tokens = batch["image_tokens"].to(device)
-        labels = batch["label"].to(device)
-        targets = unified_targets(image_tokens, labels, codebook_size)
+        text_tokens = batch["text_tokens"].to(device)
+        targets = unified_targets(image_tokens, text_tokens, codebook_size)
         x1 = build_flm_clean_state(targets, vocab_size).to(device)
         progress = torch.rand(image_tokens.shape[0], device=device)
         task = task_for_step(config, stage, step - 1)
-        t_pos = _task_time_schedule(config, progress, modality_ids, task)
+        t_pos = _task_time_schedule(config, progress, modality_ids, schedule_tables, task)
         t_pos = condition_clean_timesteps(
             t_pos,
             image_seq_len,
-            condition_image=task == "image_to_label",
-            condition_label=task == "label_to_image",
+            condition_image=task == "image_to_text",
+            condition_text=task == "text_to_image",
         )
         z_t = _build_zt(x1, t_pos, image_seq_len, task, valid_token_mask)
         logits = model(z_t, t_pos, modality_ids)
@@ -186,10 +212,12 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             logits=logits,
             targets=targets,
             image_seq_len=image_seq_len,
+            text_seq_len=text_seq_len,
             codebook_size=codebook_size,
-            num_labels=num_labels,
+            text_vocab_size=text_vocab_size,
             joint_weight=config.train.joint_weight,
-            label_weight=config.train.label_weight,
+            text_weight=config.train.text_weight,
+            text_pad_id=text_metadata.pad_id,
             task=task,
         )
 
@@ -206,7 +234,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
                     "task": task,
                     "loss": float(loss.item()),
                     "image_t_mean": float(t_pos[:, :image_seq_len].mean().item()),
-                    "label_t_mean": float(t_pos[:, image_seq_len:].mean().item()),
+                    "text_t_mean": float(t_pos[:, image_seq_len:].mean().item()),
                     **parts,
                 },
             )

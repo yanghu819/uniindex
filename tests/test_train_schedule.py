@@ -8,10 +8,10 @@ def test_task_for_step_uses_configured_stage2_repeats():
     assert tasks == [
         "joint",
         "joint",
-        "label_to_image",
-        "label_to_image",
-        "image_to_label",
-        "image_to_label",
-        "image_to_label",
-        "image_to_label",
+        "text_to_image",
+        "text_to_image",
+        "image_to_text",
+        "image_to_text",
+        "image_to_text",
+        "image_to_text",
     ]

@@ -42,6 +42,6 @@ def test_unified_denoiser_accepts_positionwise_time():
 
 def test_mask_logits_keeps_valid_regions():
     logits = torch.zeros(2, 5, 12)
-    masked = mask_logits(logits, image_seq_len=4, codebook_size=10, num_labels=2)
+    masked = mask_logits(logits, image_seq_len=4, text_seq_len=1, codebook_size=10, text_vocab_size=2)
     assert torch.isneginf(masked[:, :4, 10:]).all()
     assert torch.isneginf(masked[:, 4:, :10]).all()

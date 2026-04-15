@@ -39,6 +39,13 @@ class DatasetConfig:
 
 
 @dataclass(frozen=True)
+class TextConfig:
+    kind: str = "char"
+    strings: list[str] | None = None
+    pad_token: str = "<pad>"
+
+
+@dataclass(frozen=True)
 class LabelsConfig:
     values: list[int]
 
@@ -69,13 +76,13 @@ class TrainConfig:
     log_every: int
     save_every: int
     joint_weight: float
-    label_weight: float
+    text_weight: float
     stage2_joint_repeats: int = 2
-    stage2_label_to_image_repeats: int = 1
-    stage2_image_to_label_repeats: int = 1
+    stage2_text_to_image_repeats: int = 1
+    stage2_image_to_text_repeats: int = 1
     image_time_power: float = 1.0
-    label_time_power: float = 1.0
-    image_to_label_label_time_power: float | None = None
+    text_time_power: float = 1.0
+    image_to_text_text_time_power: float | None = None
 
 
 @dataclass(frozen=True)
@@ -83,8 +90,16 @@ class SamplingConfig:
     steps: int
     temperature: float
     image_time_power: float = 1.0
-    label_time_power: float = 1.0
-    image_to_label_label_time_power: float | None = None
+    text_time_power: float = 1.0
+    image_to_text_text_time_power: float | None = None
+
+
+@dataclass(frozen=True)
+class ScheduleConfig:
+    kind: str = "power"
+    num_points: int = 33
+    num_samples: int = 4096
+    min_t: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -102,15 +117,95 @@ class ProjectConfig:
     paths: PathsConfig
     tokenizer: TokenizerConfig
     dataset: DatasetConfig
+    text: TextConfig
     labels: LabelsConfig
     model: ModelConfig
     train: TrainConfig
     sampling: SamplingConfig
+    schedule: ScheduleConfig
     eval: EvalConfig
 
 
 def _resolve(base: Path, raw: str) -> Path:
     return (base / raw).resolve()
+
+
+def _default_text_strings(dataset_name: str, label_values: list[int]) -> list[str]:
+    mnist_map = {
+        0: "zero",
+        1: "one",
+        2: "two",
+        3: "three",
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+        8: "eight",
+        9: "nine",
+    }
+    cifar10_map = {
+        0: "airplane",
+        1: "automobile",
+        2: "bird",
+        3: "cat",
+        4: "deer",
+        5: "dog",
+        6: "frog",
+        7: "horse",
+        8: "ship",
+        9: "truck",
+    }
+    dataset_map = {
+        "mnist": mnist_map,
+        "cifar10": cifar10_map,
+    }.get(dataset_name, {})
+    if all(value in dataset_map for value in label_values):
+        return [dataset_map[value] for value in label_values]
+    return [str(value) for value in label_values]
+
+
+def _normalize_text_config(raw: dict[str, Any]) -> dict[str, Any]:
+    label_values = list(raw["labels"]["values"])
+    text_raw = dict(raw.get("text", {}))
+    text_raw.setdefault("kind", "char")
+    text_raw.setdefault("pad_token", "<pad>")
+    text_raw.setdefault("strings", _default_text_strings(raw["dataset"]["name"], label_values))
+    return text_raw
+
+
+def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
+    train_raw = dict(raw_train)
+    if "text_weight" not in train_raw and "label_weight" in train_raw:
+        train_raw["text_weight"] = train_raw["label_weight"]
+    train_raw.pop("label_weight", None)
+    if "stage2_text_to_image_repeats" not in train_raw and "stage2_label_to_image_repeats" in train_raw:
+        train_raw["stage2_text_to_image_repeats"] = train_raw["stage2_label_to_image_repeats"]
+    train_raw.pop("stage2_label_to_image_repeats", None)
+    if "stage2_image_to_text_repeats" not in train_raw and "stage2_image_to_label_repeats" in train_raw:
+        train_raw["stage2_image_to_text_repeats"] = train_raw["stage2_image_to_label_repeats"]
+    train_raw.pop("stage2_image_to_label_repeats", None)
+    if "text_time_power" not in train_raw and "label_time_power" in train_raw:
+        train_raw["text_time_power"] = train_raw["label_time_power"]
+    train_raw.pop("label_time_power", None)
+    if "image_to_text_text_time_power" not in train_raw and "image_to_label_label_time_power" in train_raw:
+        train_raw["image_to_text_text_time_power"] = train_raw["image_to_label_label_time_power"]
+    train_raw.pop("image_to_label_label_time_power", None)
+    return train_raw
+
+
+def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
+    sampling_raw = dict(raw_sampling)
+    if "text_time_power" not in sampling_raw and "label_time_power" in sampling_raw:
+        sampling_raw["text_time_power"] = sampling_raw["label_time_power"]
+    sampling_raw.pop("label_time_power", None)
+    if "image_to_text_text_time_power" not in sampling_raw and "image_to_label_label_time_power" in sampling_raw:
+        sampling_raw["image_to_text_text_time_power"] = sampling_raw["image_to_label_label_time_power"]
+    sampling_raw.pop("image_to_label_label_time_power", None)
+    return sampling_raw
+
+
+def _normalize_schedule_config(raw: dict[str, Any]) -> dict[str, Any]:
+    return dict(raw.get("schedule", {}))
 
 
 def load_config(path: str | Path) -> ProjectConfig:
@@ -133,10 +228,12 @@ def load_config(path: str | Path) -> ProjectConfig:
         paths=paths,
         tokenizer=TokenizerConfig(**raw["tokenizer"]),
         dataset=DatasetConfig(**raw["dataset"]),
+        text=TextConfig(**_normalize_text_config(raw)),
         labels=LabelsConfig(**raw["labels"]),
         model=ModelConfig(**raw["model"]),
-        train=TrainConfig(**raw["train"]),
-        sampling=SamplingConfig(**raw["sampling"]),
+        train=TrainConfig(**_normalize_train_config(raw["train"])),
+        sampling=SamplingConfig(**_normalize_sampling_config(raw["sampling"])),
+        schedule=ScheduleConfig(**_normalize_schedule_config(raw)),
         eval=EvalConfig(**raw["eval"]),
     )
 
@@ -148,9 +245,11 @@ def as_dict(config: ProjectConfig) -> dict[str, Any]:
         "paths": {key: str(value) for key, value in config.paths.__dict__.items()},
         "tokenizer": dict(config.tokenizer.__dict__),
         "dataset": dict(config.dataset.__dict__),
+        "text": dict(config.text.__dict__),
         "labels": dict(config.labels.__dict__),
         "model": dict(config.model.__dict__),
         "train": dict(config.train.__dict__),
         "sampling": dict(config.sampling.__dict__),
+        "schedule": dict(config.schedule.__dict__),
         "eval": dict(config.eval.__dict__),
     }

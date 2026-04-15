@@ -1,8 +1,8 @@
 import torch
 
 from uniindex.layout import position_valid_token_mask
+from uniindex.schedule import apply_schedule
 from uniindex.state import (
-    apply_time_schedule,
     build_flm_clean_state,
     condition_clean_timesteps,
     restore_image_tokens,
@@ -17,10 +17,16 @@ def test_build_flm_clean_state_returns_one_hot():
     assert torch.equal(state.argmax(dim=-1), targets)
 
 
-def test_apply_time_schedule_uses_different_powers_per_modality():
+def test_apply_schedule_uses_different_powers_per_modality():
     progress = torch.tensor([0.25, 0.81])
     modality_ids = torch.tensor([0, 0, 1])
-    t_pos = apply_time_schedule(progress, modality_ids, image_time_power=1.0, label_time_power=0.5)
+    t_pos = apply_schedule(
+        progress,
+        modality_ids,
+        {"kind": "power"},
+        image_time_power=1.0,
+        text_time_power=0.5,
+    )
     expected = torch.tensor(
         [
             [0.25, 0.25, 0.5],
@@ -37,29 +43,29 @@ def test_restore_image_tokens_maps_compact_ids_back_to_original_ids():
     assert torch.equal(restored, torch.tensor([[7, 19, 11]]))
 
 
-def test_position_valid_token_mask_separates_image_and_label_subspaces():
-    mask = position_valid_token_mask(image_seq_len=2, codebook_size=4, num_labels=3)
-    assert mask.shape == (3, 7)
+def test_position_valid_token_mask_separates_image_and_text_subspaces():
+    mask = position_valid_token_mask(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
+    assert mask.shape == (5, 7)
     assert torch.equal(mask[0], torch.tensor([True, True, True, True, False, False, False]))
     assert torch.equal(mask[1], torch.tensor([True, True, True, True, False, False, False]))
     assert torch.equal(mask[2], torch.tensor([False, False, False, False, True, True, True]))
 
 
 def test_sample_masked_noise_zeroes_invalid_dimensions():
-    x1 = torch.zeros(2, 3, 7)
-    mask = position_valid_token_mask(image_seq_len=2, codebook_size=4, num_labels=3)
+    x1 = torch.zeros(2, 5, 7)
+    mask = position_valid_token_mask(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
     noise = sample_masked_noise(x1, mask)
     assert torch.all(noise[:, :2, 4:] == 0)
     assert torch.all(noise[:, 2:, :4] == 0)
 
 
 def test_condition_clean_timesteps_sets_conditioned_positions_to_one():
-    t_pos = torch.tensor([[0.2, 0.3, 0.7], [0.4, 0.5, 0.8]])
+    t_pos = torch.tensor([[0.2, 0.3, 0.7, 0.8], [0.4, 0.5, 0.8, 0.9]])
     adjusted = condition_clean_timesteps(
         t_pos,
         image_seq_len=2,
         condition_image=True,
-        condition_label=False,
+        condition_text=False,
     )
     assert torch.equal(adjusted[:, :2], torch.ones(2, 2))
     assert torch.equal(adjusted[:, 2:], t_pos[:, 2:])
@@ -68,7 +74,7 @@ def test_condition_clean_timesteps_sets_conditioned_positions_to_one():
         t_pos,
         image_seq_len=2,
         condition_image=False,
-        condition_label=True,
+        condition_text=True,
     )
     assert torch.equal(adjusted[:, :2], t_pos[:, :2])
-    assert torch.equal(adjusted[:, 2:], torch.ones(2, 1))
+    assert torch.equal(adjusted[:, 2:], torch.ones(2, 2))

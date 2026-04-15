@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import torch
 from PIL import Image, ImageDraw, ImageFont
@@ -11,6 +10,8 @@ from .config import ProjectConfig
 from .data import build_loader, split_path
 from .eval import _decode_image_tokens, _load_stage2, sample_unified
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
+from .schedule import build_schedule_tables
+from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state
 from .tokenizer import build_tokenizer
 
 
@@ -52,11 +53,15 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     run_context.set_device(device)
 
     model, tokenizer_state, image_seq_len = _load_stage2(config, device)
+    text_metadata = metadata_from_state(tokenizer_state)
     codebook_size = int(tokenizer_state["codebook_size"])
-    num_labels = len(config.labels.values)
+    text_seq_len = int(text_metadata.seq_len)
+    text_vocab_size = int(text_metadata.vocab_size)
+    schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
     classifier = load_classifier(classifier_path(config.paths.models_dir, config.dataset.name), config.dataset.name, device=device)
+    label_to_string = {value: text for value, text in zip(text_metadata.label_values, text_metadata.label_strings)}
     test_loader = build_loader(
         split_path(config, "test"),
         batch_size=16,
@@ -66,36 +71,43 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
 
     batch = next(iter(test_loader))
     image_tokens = batch["image_tokens"].to(device)
+    text_tokens = batch["text_tokens"].to(device)
     labels = batch["label"].to(device)
     decoded_real = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
 
-    sampled_labels = sample_unified(
+    sampled_text = sample_unified(
         model=model,
         codebook_size=codebook_size,
-        num_labels=num_labels,
+        text_vocab_size=text_vocab_size,
         image_seq_len=image_seq_len,
+        text_seq_len=text_seq_len,
+        schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
         image_time_power=config.sampling.image_time_power,
-        label_time_power=config.sampling.label_time_power,
-        image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
+        text_time_power=config.sampling.text_time_power,
+        image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         condition_image_tokens=image_tokens,
-        condition_labels=None,
-    )[:, image_seq_len] - codebook_size
+        condition_text_tokens=None,
+    )[:, image_seq_len:] - codebook_size
+    sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
+    gt_text_strings = decode_text_tokens(text_tokens, text_metadata)
 
-    label_conditions = torch.arange(num_labels, device=device)
+    class_text_tokens = text_metadata.label_text_tokens.to(device)
     sampled_images = sample_unified(
         model=model,
         codebook_size=codebook_size,
-        num_labels=num_labels,
+        text_vocab_size=text_vocab_size,
         image_seq_len=image_seq_len,
+        text_seq_len=text_seq_len,
+        schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
         image_time_power=config.sampling.image_time_power,
-        label_time_power=config.sampling.label_time_power,
-        image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
+        text_time_power=config.sampling.text_time_power,
+        image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         condition_image_tokens=None,
-        condition_labels=label_conditions,
+        condition_text_tokens=class_text_tokens,
     )[:, :image_seq_len]
     decoded_generated = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
     generated_preds = classify_images(classifier, decoded_generated, config.dataset.name)
@@ -103,57 +115,76 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     unconditional = sample_unified(
         model=model,
         codebook_size=codebook_size,
-        num_labels=num_labels,
+        text_vocab_size=text_vocab_size,
         image_seq_len=image_seq_len,
+        text_seq_len=text_seq_len,
+        schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
         image_time_power=config.sampling.image_time_power,
-        label_time_power=config.sampling.label_time_power,
-        image_to_label_label_time_power=config.sampling.image_to_label_label_time_power,
+        text_time_power=config.sampling.text_time_power,
+        image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         batch_size=16,
         condition_image_tokens=None,
-        condition_labels=None,
+        condition_text_tokens=None,
     )
     unconditional_images = _decode_image_tokens(tokenizer, unconditional[:, :image_seq_len], tokenizer_state, grid_shape, device)
     unconditional_clf = classify_images(classifier, unconditional_images, config.dataset.name)
-    unconditional_tokens = unconditional[:, image_seq_len] - codebook_size
+    unconditional_text = unconditional[:, image_seq_len:] - codebook_size
+    unconditional_text_strings = decode_text_tokens(unconditional_text, text_metadata)
+    unconditional_text_values = label_values_from_text_tokens(unconditional_text, text_metadata)
 
-    image_to_label_grid = _make_grid(
+    image_to_text_grid = _make_grid(
         images=[_tensor_to_pil(image) for image in decoded_real[:16]],
-        captions=[f"gt={int(gt)}\npred={int(pred)}" for gt, pred in zip(labels[:16], sampled_labels[:16])],
+        captions=[f"gt={gt}\npred={pred}" for gt, pred in zip(gt_text_strings[:16], sampled_text_strings[:16])],
         cols=4,
     )
-    label_to_image_grid = _make_grid(
+    text_to_image_grid = _make_grid(
         images=[_tensor_to_pil(image) for image in decoded_generated[:10]],
-        captions=[f"cond={index}\nclf={int(pred)}" for index, pred in enumerate(generated_preds[:10])],
+        captions=[
+            f"cond={condition}\nclf={label_to_string.get(int(pred), str(int(pred)))}"
+            for condition, pred in zip(text_metadata.label_strings[:10], generated_preds[:10].tolist())
+        ],
         cols=5,
     )
     unconditional_grid = _make_grid(
         images=[_tensor_to_pil(image) for image in unconditional_images[:16]],
-        captions=[f"tok={int(tok)}\nclf={int(pred)}" for tok, pred in zip(unconditional_tokens[:16], unconditional_clf[:16])],
+        captions=[
+            f"text={text}\nclf={label_to_string.get(int(pred), str(int(pred)))}"
+            for text, pred in zip(unconditional_text_strings[:16], unconditional_clf[:16].tolist())
+        ],
         cols=4,
     )
 
-    image_to_label_path = run_context.log_path("visuals/image_to_label_grid.png")
-    label_to_image_path = run_context.log_path("visuals/label_to_image_grid.png")
+    image_to_text_path = run_context.log_path("visuals/image_to_text_grid.png")
+    text_to_image_path = run_context.log_path("visuals/text_to_image_grid.png")
     unconditional_path = run_context.log_path("visuals/unconditional_grid.png")
-    image_to_label_grid.save(image_to_label_path)
-    label_to_image_grid.save(label_to_image_path)
+    image_to_text_grid.save(image_to_text_path)
+    text_to_image_grid.save(text_to_image_path)
     unconditional_grid.save(unconditional_path)
 
     summary = {
-        "image_to_label_grid": str(image_to_label_path),
-        "label_to_image_grid": str(label_to_image_path),
+        "image_to_text_grid": str(image_to_text_path),
+        "text_to_image_grid": str(text_to_image_path),
         "unconditional_grid": str(unconditional_path),
-        "image_to_label_pairs": [
-            {"gt": int(gt), "pred": int(pred)} for gt, pred in zip(labels[:16].tolist(), sampled_labels[:16].tolist())
+        "image_to_text_pairs": [
+            {"gt": gt, "pred": pred} for gt, pred in zip(gt_text_strings[:16], sampled_text_strings[:16])
         ],
-        "label_to_image_pairs": [
-            {"condition": int(index), "classifier_pred": int(pred)} for index, pred in enumerate(generated_preds[:10].tolist())
+        "text_to_image_pairs": [
+            {"condition": condition, "classifier_pred": label_to_string.get(int(pred), str(int(pred)))}
+            for condition, pred in zip(text_metadata.label_strings[:10], generated_preds[:10].tolist())
         ],
         "unconditional_pairs": [
-            {"token_label": int(tok), "classifier_pred": int(pred)}
-            for tok, pred in zip(unconditional_tokens[:16].tolist(), unconditional_clf[:16].tolist())
+            {
+                "text": text,
+                "text_label_value": int(value),
+                "classifier_pred": label_to_string.get(int(pred), str(int(pred))),
+            }
+            for text, value, pred in zip(
+                unconditional_text_strings[:16],
+                unconditional_text_values[:16].tolist(),
+                unconditional_clf[:16].tolist(),
+            )
         ],
     }
     summary_path = run_context.log_path("visuals/summary.json")
