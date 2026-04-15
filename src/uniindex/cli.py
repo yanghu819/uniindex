@@ -56,7 +56,14 @@ def _run_train(config_path: str, stage: str) -> int:
 def _run_eval(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
-    evaluate(config)
+    run_context = RunContext(config, "eval")
+    try:
+        evaluate(config, run_context=run_context)
+        export_visualizations(config, run_context=run_context)
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
     return 0
 
 
@@ -83,6 +90,7 @@ def _run_smoke(config_path: str) -> int:
         train_stage(config, "stage1", run_context=smoke_context)
         train_stage(config, "stage2", run_context=smoke_context)
         evaluate(config, run_context=smoke_context)
+        export_visualizations(config, run_context=smoke_context)
         smoke_context.update_status("ok")
     except Exception:
         smoke_context.update_status("error")
