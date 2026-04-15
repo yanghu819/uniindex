@@ -45,7 +45,7 @@ WHEELHOUSE_CACHE_DIR="$ROOT/.cache/wheelhouse"
 RUNTIME_REQUIREMENTS=(
   huggingface-hub==0.35.3
   numpy==2.2.6
-  pillow==11.3.0
+  pillow==12.2.0
   pyyaml==6.0.3
   safetensors==0.6.2
   tqdm==4.67.1
