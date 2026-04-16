@@ -9,6 +9,8 @@ def test_load_smoke_config():
     assert config.train.text_time_power == 0.5
     assert config.train.image_to_text_text_time_power is None
     assert config.text.strings[0] == "zero"
+    assert config.text.bos_token == "<bos>"
+    assert config.text.eos_token == "<eos>"
     assert config.schedule.kind == "empirical"
     assert config.train.text_sequence_weight == 0.25
 
