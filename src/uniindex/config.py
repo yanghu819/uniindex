@@ -43,6 +43,8 @@ class TextConfig:
     kind: str = "char"
     strings: list[str] | None = None
     pad_token: str = "<pad>"
+    bos_token: str = "<bos>"
+    eos_token: str = "<eos>"
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,8 @@ def _normalize_text_config(raw: dict[str, Any]) -> dict[str, Any]:
     text_raw = dict(raw.get("text", {}))
     text_raw.setdefault("kind", "char")
     text_raw.setdefault("pad_token", "<pad>")
+    text_raw.setdefault("bos_token", "<bos>")
+    text_raw.setdefault("eos_token", "<eos>")
     text_raw.setdefault("strings", _default_text_strings(raw["dataset"]["name"], label_values))
     return text_raw
 
