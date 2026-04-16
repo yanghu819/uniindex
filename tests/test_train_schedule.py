@@ -1,7 +1,8 @@
+import torch
+
 from uniindex.config import load_config
 from uniindex.task_schedule import task_for_step
 from uniindex.train import _task_time_schedule
-import torch
 
 
 def test_task_for_step_uses_configured_stage2_repeats():

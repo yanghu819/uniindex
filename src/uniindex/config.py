@@ -179,34 +179,11 @@ def _normalize_text_config(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
-    train_raw = dict(raw_train)
-    if "text_weight" not in train_raw and "label_weight" in train_raw:
-        train_raw["text_weight"] = train_raw["label_weight"]
-    train_raw.pop("label_weight", None)
-    if "stage2_text_to_image_repeats" not in train_raw and "stage2_label_to_image_repeats" in train_raw:
-        train_raw["stage2_text_to_image_repeats"] = train_raw["stage2_label_to_image_repeats"]
-    train_raw.pop("stage2_label_to_image_repeats", None)
-    if "stage2_image_to_text_repeats" not in train_raw and "stage2_image_to_label_repeats" in train_raw:
-        train_raw["stage2_image_to_text_repeats"] = train_raw["stage2_image_to_label_repeats"]
-    train_raw.pop("stage2_image_to_label_repeats", None)
-    if "text_time_power" not in train_raw and "label_time_power" in train_raw:
-        train_raw["text_time_power"] = train_raw["label_time_power"]
-    train_raw.pop("label_time_power", None)
-    if "image_to_text_text_time_power" not in train_raw and "image_to_label_label_time_power" in train_raw:
-        train_raw["image_to_text_text_time_power"] = train_raw["image_to_label_label_time_power"]
-    train_raw.pop("image_to_label_label_time_power", None)
-    return train_raw
+    return dict(raw_train)
 
 
 def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
-    sampling_raw = dict(raw_sampling)
-    if "text_time_power" not in sampling_raw and "label_time_power" in sampling_raw:
-        sampling_raw["text_time_power"] = sampling_raw["label_time_power"]
-    sampling_raw.pop("label_time_power", None)
-    if "image_to_text_text_time_power" not in sampling_raw and "image_to_label_label_time_power" in sampling_raw:
-        sampling_raw["image_to_text_text_time_power"] = sampling_raw["image_to_label_label_time_power"]
-    sampling_raw.pop("image_to_label_label_time_power", None)
-    return sampling_raw
+    return dict(raw_sampling)
 
 
 def _normalize_schedule_config(raw: dict[str, Any]) -> dict[str, Any]:

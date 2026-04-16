@@ -1,12 +1,12 @@
 project:
-  name: uniindex
+  name: uniindex-fullvocab-short-tsw075
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts
-  models_dir: models
-  runs_dir: runs
-  logs_dir: logs
+  artifacts_dir: artifacts/fullvocab_short_tsw075
+  models_dir: models/fullvocab_short_tsw075
+  runs_dir: runs/fullvocab_short_tsw075
+  logs_dir: logs/fullvocab_short_tsw075
   cache_dir: .cache
 
 tokenizer:
@@ -16,12 +16,16 @@ tokenizer:
   image_size: 256
   device: cuda
   dtype: bfloat16
-  compact_vocab: true
+  compact_vocab: false
 
 dataset:
   name: mnist
   train_limit: 2048
   test_limit: 256
+
+text:
+  kind: char
+  pad_token: "<pad>"
 
 labels:
   values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -44,21 +48,32 @@ train:
   lr: 0.0003
   weight_decay: 0.01
   grad_clip_norm: 1.0
-  stage1_steps: 1000
-  stage2_steps: 500
+  stage1_steps: 200
+  stage2_steps: 400
   log_every: 20
   save_every: 100
   joint_weight: 0.5
-  text_weight: 0.5
-  text_sequence_weight: 0.25
+  text_weight: 1.0
+  text_sequence_weight: 0.75
+  stage2_joint_repeats: 2
+  stage2_text_to_image_repeats: 2
+  stage2_image_to_text_repeats: 4
   image_time_power: 1.0
-  text_time_power: 0.5
+  text_time_power: 0.25
+  image_to_text_text_time_power: 4.0
 
 sampling:
   steps: 8
   temperature: 1.0
   image_time_power: 1.0
-  text_time_power: 0.5
+  text_time_power: 0.25
+  image_to_text_text_time_power: 4.0
+
+schedule:
+  kind: empirical
+  num_points: 33
+  num_samples: 4096
+  min_t: 0.0
 
 eval:
   num_unconditional_samples: 64

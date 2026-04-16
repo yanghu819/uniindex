@@ -49,15 +49,16 @@ train:
   log_every: 20
   save_every: 200
   joint_weight: 0.5
-  label_weight: 1.0
+  text_weight: 1.0
+  text_sequence_weight: 0.5
   image_time_power: 1.0
-  label_time_power: 0.25
+  text_time_power: 0.25
 
 sampling:
   steps: 8
   temperature: 1.0
   image_time_power: 1.0
-  label_time_power: 0.25
+  text_time_power: 0.25
 
 eval:
   num_unconditional_samples: 64

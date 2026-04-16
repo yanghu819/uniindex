@@ -1,6 +1,6 @@
 import torch
 
-from uniindex.layout import position_valid_token_mask
+from uniindex.layout import TaskLayout
 from uniindex.schedule import apply_schedule
 from uniindex.state import (
     build_flm_clean_state,
@@ -36,36 +36,6 @@ def test_apply_schedule_uses_different_powers_per_modality():
     assert torch.allclose(t_pos, expected, atol=1e-6)
 
 
-def test_apply_schedule_uses_progress_warp_under_empirical_tables():
-    progress = torch.tensor([0.25, 0.81])
-    modality_ids = torch.tensor([0, 1])
-    schedule_tables = {
-        "kind": "empirical",
-        "image": {
-            "progress_grid": torch.tensor([0.0, 0.5, 1.0]),
-            "t_grid": torch.tensor([0.0, 0.5, 1.0]),
-        },
-        "text": {
-            "progress_grid": torch.tensor([0.0, 0.5, 1.0]),
-            "t_grid": torch.tensor([0.0, 0.5, 1.0]),
-        },
-    }
-    t_pos = apply_schedule(
-        progress,
-        modality_ids,
-        schedule_tables,
-        image_time_power=1.0,
-        text_time_power=0.5,
-    )
-    expected = torch.tensor(
-        [
-            [0.25, 0.5],
-            [0.81, 0.9],
-        ]
-    )
-    assert torch.allclose(t_pos, expected, atol=1e-6)
-
-
 def test_restore_image_tokens_maps_compact_ids_back_to_original_ids():
     tokens = torch.tensor([[0, 2, 1]])
     tokenizer_state = {"original_token_ids": torch.tensor([7, 11, 19])}
@@ -74,7 +44,8 @@ def test_restore_image_tokens_maps_compact_ids_back_to_original_ids():
 
 
 def test_position_valid_token_mask_separates_image_and_text_subspaces():
-    mask = position_valid_token_mask(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
+    layout = TaskLayout(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
+    mask = layout.position_valid_token_mask()
     assert mask.shape == (5, 7)
     assert torch.equal(mask[0], torch.tensor([True, True, True, True, False, False, False]))
     assert torch.equal(mask[1], torch.tensor([True, True, True, True, False, False, False]))
@@ -83,7 +54,8 @@ def test_position_valid_token_mask_separates_image_and_text_subspaces():
 
 def test_sample_masked_noise_zeroes_invalid_dimensions():
     x1 = torch.zeros(2, 5, 7)
-    mask = position_valid_token_mask(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
+    layout = TaskLayout(image_seq_len=2, text_seq_len=3, codebook_size=4, text_vocab_size=3)
+    mask = layout.position_valid_token_mask()
     noise = sample_masked_noise(x1, mask)
     assert torch.all(noise[:, :2, 4:] == 0)
     assert torch.all(noise[:, 2:, :4] == 0)

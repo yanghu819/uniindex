@@ -8,7 +8,13 @@ from PIL import Image, ImageDraw, ImageFont
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
 from .data import build_loader, split_path
-from .eval import _decode_image_tokens, _load_stage2, _sample_unified_with_logits, constrained_text_label_values, sample_unified
+from .eval import (
+    _decode_image_tokens,
+    _load_stage2,
+    _sample_unified_with_logits,
+    constrained_text_label_values,
+    sample_unified,
+)
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import build_schedule_tables
 from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state, text_scoring_mask
@@ -52,12 +58,13 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     run_context = run_context or RunContext(config, "visualize")
     run_context.set_device(device)
 
-    model, tokenizer_state, image_seq_len = _load_stage2(config, device)
+    model, tokenizer_state, layout = _load_stage2(config, device)
     text_metadata = metadata_from_state(tokenizer_state)
-    codebook_size = int(tokenizer_state["codebook_size"])
-    text_seq_len = int(text_metadata.seq_len)
-    text_vocab_size = int(text_metadata.vocab_size)
-    schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
+    schedule_tables = build_schedule_tables(
+        config,
+        image_vocab_size=layout.codebook_size,
+        text_vocab_size=layout.text_vocab_size,
+    )
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
     classifier = load_classifier(classifier_path(config.paths.models_dir, config.dataset.name), config.dataset.name, device=device)
@@ -77,10 +84,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
 
     sampled_tokens, final_logits = _sample_unified_with_logits(
         model=model,
-        codebook_size=codebook_size,
-        text_vocab_size=text_vocab_size,
-        image_seq_len=image_seq_len,
-        text_seq_len=text_seq_len,
+        layout=layout,
         schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
@@ -90,22 +94,19 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         condition_image_tokens=image_tokens,
         condition_text_tokens=None,
     )
-    sampled_text = sampled_tokens[:, image_seq_len:] - codebook_size
+    sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
     sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
     gt_text_strings = decode_text_tokens(text_tokens, text_metadata)
     constrained_labels = constrained_text_label_values(
-        final_logits[:, image_seq_len:],
+        final_logits[:, layout.text_slice],
         text_metadata,
-        codebook_size=codebook_size,
+        codebook_size=layout.codebook_size,
     )
 
     class_text_tokens = text_metadata.label_text_tokens.to(device)
     sampled_images = sample_unified(
         model=model,
-        codebook_size=codebook_size,
-        text_vocab_size=text_vocab_size,
-        image_seq_len=image_seq_len,
-        text_seq_len=text_seq_len,
+        layout=layout,
         schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
@@ -114,16 +115,13 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         condition_image_tokens=None,
         condition_text_tokens=class_text_tokens,
-    )[:, :image_seq_len]
+    )[:, layout.image_slice]
     decoded_generated = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
     generated_preds = classify_images(classifier, decoded_generated, config.dataset.name)
 
     unconditional = sample_unified(
         model=model,
-        codebook_size=codebook_size,
-        text_vocab_size=text_vocab_size,
-        image_seq_len=image_seq_len,
-        text_seq_len=text_seq_len,
+        layout=layout,
         schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
@@ -134,9 +132,9 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         condition_image_tokens=None,
         condition_text_tokens=None,
     )
-    unconditional_images = _decode_image_tokens(tokenizer, unconditional[:, :image_seq_len], tokenizer_state, grid_shape, device)
+    unconditional_images = _decode_image_tokens(tokenizer, unconditional[:, layout.image_slice], tokenizer_state, grid_shape, device)
     unconditional_clf = classify_images(classifier, unconditional_images, config.dataset.name)
-    unconditional_text = unconditional[:, image_seq_len:] - codebook_size
+    unconditional_text = unconditional[:, layout.text_slice] - layout.text_offset
     unconditional_text_strings = decode_text_tokens(unconditional_text, text_metadata)
     unconditional_text_values = label_values_from_text_tokens(unconditional_text, text_metadata)
 
@@ -176,6 +174,7 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     text_to_image_grid.save(text_to_image_path)
     unconditional_grid.save(unconditional_path)
 
+    score_mask = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
     summary = {
         "image_to_text_grid": str(image_to_text_path),
         "text_to_image_grid": str(text_to_image_path),
@@ -194,14 +193,8 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         ],
         "image_to_text_batch_constrained_accuracy": float((constrained_labels == labels).float().mean().item()),
         "image_to_text_batch_position_accuracy": (
-            sampled_text.eq(text_tokens)
-            .logical_and(text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True))
-            .float()
-            .sum(dim=0)
-            / text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
-            .float()
-            .sum(dim=0)
-            .clamp_min(1.0)
+            sampled_text.eq(text_tokens).logical_and(score_mask).float().sum(dim=0)
+            / score_mask.float().sum(dim=0).clamp_min(1.0)
         ).tolist(),
         "text_to_image_pairs": [
             {"condition": condition, "classifier_pred": label_to_string.get(int(pred), str(int(pred)))}

@@ -9,8 +9,8 @@ from tqdm import tqdm
 
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
-from .data import build_loader, load_tokenizer_state, split_path
-from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_vocab_size
+from .data import build_loader, split_path
+from .layout import TaskLayout, mask_logits
 from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
@@ -27,22 +27,23 @@ from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
 
-def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, int]:
+def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
     stage2_path = latest_checkpoint_path(config, "stage2")
     if not stage2_path.exists():
         raise FileNotFoundError(f"missing stage2 checkpoint at {stage2_path}")
     payload = torch.load(stage2_path, map_location=device)
     tokenizer_state = payload["tokenizer_state"]
     text_metadata = metadata_from_state(tokenizer_state)
-    codebook_size = int(tokenizer_state["codebook_size"])
-    image_seq_len = int(tokenizer_state["image_seq_len"])
-    text_seq_len = int(text_metadata.seq_len)
-    text_vocab_size = int(text_metadata.vocab_size)
-    vocab_size = unified_vocab_size(codebook_size, text_vocab_size)
+    layout = TaskLayout(
+        image_seq_len=int(tokenizer_state["image_seq_len"]),
+        text_seq_len=int(text_metadata.seq_len),
+        codebook_size=int(tokenizer_state["codebook_size"]),
+        text_vocab_size=int(text_metadata.vocab_size),
+    )
     model = UnifiedDenoiser(
-        input_dim=vocab_size,
-        seq_len=image_seq_len + text_seq_len,
-        vocab_size=vocab_size,
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
         d_model=config.model.d_model,
         n_heads=config.model.n_heads,
         n_layers=config.model.n_layers,
@@ -51,7 +52,7 @@ def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDe
     ).to(device)
     model.load_state_dict(payload["model"])
     model.eval()
-    return model, tokenizer_state, image_seq_len
+    return model, tokenizer_state, layout
 
 
 def _decode_image_tokens(tokenizer, image_tokens: torch.Tensor, tokenizer_state: dict, grid_shape: tuple[int, int], device: torch.device) -> torch.Tensor:
@@ -62,10 +63,7 @@ def _decode_image_tokens(tokenizer, image_tokens: torch.Tensor, tokenizer_state:
 @torch.inference_mode()
 def _sample_unified_with_logits(
     model: UnifiedDenoiser,
-    codebook_size: int,
-    text_vocab_size: int,
-    image_seq_len: int,
-    text_seq_len: int,
+    layout: TaskLayout,
     schedule_tables: dict,
     temperature: float,
     steps: int,
@@ -75,7 +73,7 @@ def _sample_unified_with_logits(
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     device = next(model.parameters()).device
     batch = batch_size or 1
     if condition_image_tokens is not None:
@@ -83,17 +81,16 @@ def _sample_unified_with_logits(
     if condition_text_tokens is not None:
         batch = condition_text_tokens.shape[0]
 
-    seq_len = image_seq_len + text_seq_len
-    vocab_size = unified_vocab_size(codebook_size, text_vocab_size)
-    modality_ids = position_modalities(image_seq_len, text_seq_len).to(device)
-    valid_token_mask = position_valid_token_mask(image_seq_len, text_seq_len, codebook_size, text_vocab_size).to(device)
-    z_t = sample_masked_noise(torch.zeros(batch, seq_len, vocab_size, device=device), valid_token_mask)
+    modality_ids = layout.position_modalities().to(device)
+    valid_token_mask = layout.position_valid_token_mask().to(device)
+    z_t = sample_masked_noise(torch.zeros(batch, layout.seq_len, layout.vocab_size, device=device), valid_token_mask)
 
+    text_targets = None
     if condition_image_tokens is not None:
-        z_t[:, :image_seq_len] = build_flm_clean_state(condition_image_tokens.to(device), vocab_size)
+        z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
     if condition_text_tokens is not None:
-        text_targets = condition_text_tokens.to(device) + codebook_size
-        z_t[:, image_seq_len:] = build_flm_clean_state(text_targets, vocab_size)
+        text_targets = condition_text_tokens.to(device) + layout.text_offset
+        z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
 
     effective_text_time_power = text_time_power
     if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
@@ -111,19 +108,19 @@ def _sample_unified_with_logits(
         )
         t_pos = condition_clean_timesteps(
             t_pos,
-            image_seq_len,
+            layout.image_seq_len,
             condition_image=condition_image_tokens is not None,
             condition_text=condition_text_tokens is not None,
         )
         logits = model(z_t, t_pos, modality_ids)
-        logits = mask_logits(logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
+        logits = mask_logits(logits, layout=layout)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
         v_t = (probs - z_t) / (1.0 - t_pos).unsqueeze(-1).clamp_min(1e-4)
         z_t = z_t + dt * v_t
         if condition_image_tokens is not None:
-            z_t[:, :image_seq_len] = build_flm_clean_state(condition_image_tokens.to(device), vocab_size)
-        if condition_text_tokens is not None:
-            z_t[:, image_seq_len:] = build_flm_clean_state(text_targets, vocab_size)
+            z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
+        if text_targets is not None:
+            z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
 
     final_t_pos = apply_schedule(
         progress=torch.ones(batch, device=device),
@@ -133,17 +130,14 @@ def _sample_unified_with_logits(
         text_time_power=effective_text_time_power,
     )
     final_logits = model(z_t, final_t_pos, modality_ids)
-    final_logits = mask_logits(final_logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
+    final_logits = mask_logits(final_logits, layout=layout)
     return final_logits.argmax(dim=-1), final_logits
 
 
 @torch.inference_mode()
 def sample_unified(
     model: UnifiedDenoiser,
-    codebook_size: int,
-    text_vocab_size: int,
-    image_seq_len: int,
-    text_seq_len: int,
+    layout: TaskLayout,
     schedule_tables: dict,
     temperature: float,
     steps: int,
@@ -156,10 +150,7 @@ def sample_unified(
 ) -> torch.Tensor:
     tokens, _ = _sample_unified_with_logits(
         model=model,
-        codebook_size=codebook_size,
-        text_vocab_size=text_vocab_size,
-        image_seq_len=image_seq_len,
-        text_seq_len=text_seq_len,
+        layout=layout,
         schedule_tables=schedule_tables,
         temperature=temperature,
         steps=steps,
@@ -199,12 +190,13 @@ def evaluate(
     run_context = run_context or RunContext(config, "eval")
     run_context.set_device(device)
 
-    model, tokenizer_state, image_seq_len = _load_stage2(config, device)
+    model, tokenizer_state, layout = _load_stage2(config, device)
     text_metadata = metadata_from_state(tokenizer_state)
-    codebook_size = int(tokenizer_state["codebook_size"])
-    text_seq_len = int(text_metadata.seq_len)
-    text_vocab_size = int(text_metadata.vocab_size)
-    schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
+    schedule_tables = build_schedule_tables(
+        config,
+        image_vocab_size=layout.codebook_size,
+        text_vocab_size=layout.text_vocab_size,
+    )
     grid_shape = tuple(tokenizer_state["grid_shape"])
     tokenizer = build_tokenizer(config, device=device)
     classifier_source = classifier_override_path or classifier_path(config.paths.models_dir, config.dataset.name)
@@ -222,8 +214,8 @@ def evaluate(
     image_to_text_token_total = 0
     image_to_text_constrained_correct = 0
     text_to_image_correct = 0
-    image_to_text_position_correct = torch.zeros(text_seq_len, dtype=torch.long)
-    image_to_text_position_total = torch.zeros(text_seq_len, dtype=torch.long)
+    image_to_text_position_correct = torch.zeros(layout.text_seq_len, dtype=torch.long)
+    image_to_text_position_total = torch.zeros(layout.text_seq_len, dtype=torch.long)
     generated_text_counter: Counter[str] = Counter()
     total = 0
 
@@ -238,10 +230,7 @@ def evaluate(
 
         sampled_tokens, final_logits = _sample_unified_with_logits(
             model=model,
-            codebook_size=codebook_size,
-            text_vocab_size=text_vocab_size,
-            image_seq_len=image_seq_len,
-            text_seq_len=text_seq_len,
+            layout=layout,
             schedule_tables=schedule_tables,
             temperature=config.sampling.temperature,
             steps=config.sampling.steps,
@@ -251,7 +240,7 @@ def evaluate(
             condition_image_tokens=image_tokens,
             condition_text_tokens=None,
         )
-        sampled_text = sampled_tokens[:, image_seq_len:] - codebook_size
+        sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
         sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
         target_text_strings = decode_text_tokens(text_tokens, text_metadata)
         image_to_text_exact += sum(pred == target for pred, target in zip(sampled_text_strings, target_text_strings))
@@ -262,18 +251,15 @@ def evaluate(
         image_to_text_position_total += valid_text.sum(dim=0).cpu()
         generated_text_counter.update(sampled_text_strings)
         constrained_values = constrained_text_label_values(
-            final_logits[:, image_seq_len:],
+            final_logits[:, layout.text_slice],
             text_metadata,
-            codebook_size=codebook_size,
+            codebook_size=layout.codebook_size,
         )
         image_to_text_constrained_correct += (constrained_values == labels).sum().item()
 
         sampled_images = sample_unified(
             model=model,
-            codebook_size=codebook_size,
-            text_vocab_size=text_vocab_size,
-            image_seq_len=image_seq_len,
-            text_seq_len=text_seq_len,
+            layout=layout,
             schedule_tables=schedule_tables,
             temperature=config.sampling.temperature,
             steps=config.sampling.steps,
@@ -282,7 +268,7 @@ def evaluate(
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
             condition_image_tokens=None,
             condition_text_tokens=text_tokens,
-        )[:, :image_seq_len]
+        )[:, layout.image_slice]
         decoded_images = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
         image_pred = classify_images(classifier, decoded_images, config.dataset.name)
         text_to_image_correct += (image_pred == labels).sum().item()
@@ -292,10 +278,7 @@ def evaluate(
     uncond_count = config.eval.num_unconditional_samples
     sampled = sample_unified(
         model=model,
-        codebook_size=codebook_size,
-        text_vocab_size=text_vocab_size,
-        image_seq_len=image_seq_len,
-        text_seq_len=text_seq_len,
+        layout=layout,
         schedule_tables=schedule_tables,
         temperature=config.sampling.temperature,
         steps=config.sampling.steps,
@@ -306,9 +289,9 @@ def evaluate(
         condition_image_tokens=None,
         condition_text_tokens=None,
     )
-    uncond_images = _decode_image_tokens(tokenizer, sampled[:, :image_seq_len], tokenizer_state, grid_shape, device)
+    uncond_images = _decode_image_tokens(tokenizer, sampled[:, layout.image_slice], tokenizer_state, grid_shape, device)
     uncond_image_pred = classify_images(classifier, uncond_images, config.dataset.name)
-    uncond_text_values = label_values_from_text_tokens(sampled[:, image_seq_len:] - codebook_size, text_metadata)
+    uncond_text_values = label_values_from_text_tokens(sampled[:, layout.text_slice] - layout.text_offset, text_metadata)
     consistency = (uncond_image_pred == uncond_text_values.to(device)).float().mean().item()
 
     metrics = {
@@ -318,8 +301,6 @@ def evaluate(
         "image_to_text_label_accuracy_constrained": image_to_text_constrained_correct / max(total, 1),
         "text_to_image_accuracy": text_to_image_correct / max(total, 1),
         "unconditional_consistency": consistency,
-        "image_to_label_accuracy": image_to_text_exact / max(total, 1),
-        "label_to_image_accuracy": text_to_image_correct / max(total, 1),
     }
 
     metrics_path = run_context.log_path("metrics.json")
@@ -342,7 +323,7 @@ def evaluate(
         json.dump(diagnostics, handle, indent=2)
 
     preview = {
-        "generated_text_strings": decode_text_tokens(sampled[:, image_seq_len:] - codebook_size, text_metadata),
+        "generated_text_strings": decode_text_tokens(sampled[:, layout.text_slice] - layout.text_offset, text_metadata),
         "image_to_text_generated_text_counts": dict(generated_text_counter.most_common(32)),
         "label_strings": list(text_metadata.label_strings),
     }
