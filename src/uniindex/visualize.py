@@ -11,7 +11,7 @@ from .data import build_loader, split_path
 from .eval import _decode_image_tokens, _load_stage2, _sample_unified_with_logits, constrained_text_label_values, sample_unified
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import build_schedule_tables
-from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state
+from .text import decode_text_tokens, label_values_from_text_tokens, metadata_from_state, text_scoring_mask
 from .tokenizer import build_tokenizer
 
 
@@ -194,8 +194,14 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         ],
         "image_to_text_batch_constrained_accuracy": float((constrained_labels == labels).float().mean().item()),
         "image_to_text_batch_position_accuracy": (
-            sampled_text.eq(text_tokens).logical_and(text_tokens.ne(text_metadata.pad_id)).float().sum(dim=0)
-            / text_tokens.ne(text_metadata.pad_id).float().sum(dim=0).clamp_min(1.0)
+            sampled_text.eq(text_tokens)
+            .logical_and(text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True))
+            .float()
+            .sum(dim=0)
+            / text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
+            .float()
+            .sum(dim=0)
+            .clamp_min(1.0)
         ).tolist(),
         "text_to_image_pairs": [
             {"condition": condition, "classifier_pred": label_to_string.get(int(pred), str(int(pred)))}
