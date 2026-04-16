@@ -59,7 +59,10 @@ def _artifact_namespace(config: ProjectConfig) -> str:
     test_limit = "all" if config.dataset.test_limit is None else str(config.dataset.test_limit)
     compact = "1" if tok.compact_vocab else "0"
     text_signature = hashlib.sha1(
-        f"{config.text.kind}|{config.text.pad_token}|{'|'.join(config.text.strings or [])}".encode("utf-8")
+        (
+            f"{config.text.kind}|{config.text.pad_token}|{config.text.bos_token}|{config.text.eos_token}|"
+            f"{'|'.join(config.text.strings or [])}"
+        ).encode("utf-8")
     ).hexdigest()[:10]
     return (
         f"{config.dataset.name}-"
@@ -163,6 +166,8 @@ def prepare_assets(config: ProjectConfig) -> None:
         label_values=config.labels.values,
         strings=config.text.strings or [],
         pad_token=config.text.pad_token,
+        bos_token=config.text.bos_token,
+        eos_token=config.text.eos_token,
     )
 
     resolved_grid_shape = None
