@@ -21,6 +21,7 @@ from .text import (
     metadata_from_state,
     sequence_candidate_scores,
     shifted_label_text_tokens,
+    text_scoring_mask,
 )
 from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
@@ -95,7 +96,7 @@ def _sample_unified_with_logits(
         z_t[:, image_seq_len:] = build_flm_clean_state(text_targets, vocab_size)
 
     effective_text_time_power = text_time_power
-    if schedule_tables["kind"] == "power" and condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
+    if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
         effective_text_time_power = image_to_text_text_time_power
 
     dt = 1.0 / max(steps, 1)
@@ -251,13 +252,15 @@ def evaluate(
             condition_text_tokens=None,
         )
         sampled_text = sampled_tokens[:, image_seq_len:] - codebook_size
-        image_to_text_exact += sampled_text.eq(text_tokens).all(dim=1).sum().item()
-        valid_text = text_tokens.ne(text_metadata.pad_id)
+        sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
+        target_text_strings = decode_text_tokens(text_tokens, text_metadata)
+        image_to_text_exact += sum(pred == target for pred, target in zip(sampled_text_strings, target_text_strings))
+        valid_text = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
         image_to_text_token_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
         image_to_text_token_total += valid_text.sum().item()
         image_to_text_position_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum(dim=0).cpu()
         image_to_text_position_total += valid_text.sum(dim=0).cpu()
-        generated_text_counter.update(decode_text_tokens(sampled_text, text_metadata))
+        generated_text_counter.update(sampled_text_strings)
         constrained_values = constrained_text_label_values(
             final_logits[:, image_seq_len:],
             text_metadata,
