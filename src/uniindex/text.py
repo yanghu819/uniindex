@@ -11,6 +11,10 @@ class TextMetadata:
     kind: str
     pad_token: str
     pad_id: int
+    bos_token: str
+    bos_id: int
+    eos_token: str
+    eos_id: int
     vocab_tokens: tuple[str, ...]
     seq_len: int
     label_values: tuple[int, ...]
@@ -22,7 +26,14 @@ class TextMetadata:
         return len(self.vocab_tokens)
 
 
-def build_text_metadata(kind: str, label_values: list[int], strings: list[str], pad_token: str) -> TextMetadata:
+def build_text_metadata(
+    kind: str,
+    label_values: list[int],
+    strings: list[str],
+    pad_token: str,
+    bos_token: str,
+    eos_token: str,
+) -> TextMetadata:
     if kind != "char":
         raise ValueError(f"unsupported text kind: {kind}")
     if len(label_values) != len(strings):
@@ -31,15 +42,18 @@ def build_text_metadata(kind: str, label_values: list[int], strings: list[str], 
         raise ValueError("labels.values must be unique")
     if len(set(strings)) != len(strings):
         raise ValueError("text.strings must be unique")
+    special_tokens = [pad_token, bos_token, eos_token]
+    if len(set(special_tokens)) != len(special_tokens):
+        raise ValueError("pad_token, bos_token, and eos_token must be unique")
 
     charset = sorted({char for text in strings for char in text})
-    vocab_tokens = (pad_token, *charset)
+    vocab_tokens = (pad_token, bos_token, eos_token, *charset)
     token_to_id = {token: index for index, token in enumerate(vocab_tokens)}
-    seq_len = max(len(text) for text in strings)
+    seq_len = max(len(text) + 2 for text in strings)
 
     rows = []
     for text in strings:
-        token_ids = [token_to_id[char] for char in text]
+        token_ids = [token_to_id[bos_token], *[token_to_id[char] for char in text], token_to_id[eos_token]]
         token_ids += [token_to_id[pad_token]] * (seq_len - len(token_ids))
         rows.append(token_ids)
 
@@ -47,6 +61,10 @@ def build_text_metadata(kind: str, label_values: list[int], strings: list[str], 
         kind=kind,
         pad_token=pad_token,
         pad_id=token_to_id[pad_token],
+        bos_token=bos_token,
+        bos_id=token_to_id[bos_token],
+        eos_token=eos_token,
+        eos_id=token_to_id[eos_token],
         vocab_tokens=vocab_tokens,
         seq_len=seq_len,
         label_values=tuple(int(value) for value in label_values),
@@ -60,6 +78,10 @@ def metadata_from_state(state: dict) -> TextMetadata:
         kind=str(state["text_kind"]),
         pad_token=str(state["text_pad_token"]),
         pad_id=int(state["text_pad_id"]),
+        bos_token=str(state.get("text_bos_token", "<bos>")),
+        bos_id=int(state.get("text_bos_id", 1)),
+        eos_token=str(state.get("text_eos_token", "<eos>")),
+        eos_id=int(state.get("text_eos_id", 2)),
         vocab_tokens=tuple(state["text_vocab_tokens"]),
         seq_len=int(state["text_seq_len"]),
         label_values=tuple(int(value) for value in torch.as_tensor(state["label_values"]).tolist()),
@@ -73,6 +95,10 @@ def text_state_dict(metadata: TextMetadata) -> dict:
         "text_kind": metadata.kind,
         "text_pad_token": metadata.pad_token,
         "text_pad_id": metadata.pad_id,
+        "text_bos_token": metadata.bos_token,
+        "text_bos_id": metadata.bos_id,
+        "text_eos_token": metadata.eos_token,
+        "text_eos_id": metadata.eos_id,
         "text_vocab_tokens": list(metadata.vocab_tokens),
         "text_seq_len": metadata.seq_len,
         "text_strings": list(metadata.label_strings),
@@ -96,20 +122,37 @@ def decode_text_tokens(tokens: torch.Tensor, metadata: TextMetadata) -> list[str
         for token_id in row.tolist():
             if token_id == metadata.pad_id:
                 break
+            if token_id == metadata.bos_id:
+                continue
+            if token_id == metadata.eos_id:
+                break
             chars.append(metadata.vocab_tokens[token_id])
         outputs.append("".join(chars))
     return outputs
 
 
+def text_scoring_mask(
+    tokens: torch.Tensor,
+    metadata: TextMetadata,
+    *,
+    include_bos: bool = False,
+    include_eos: bool = True,
+) -> torch.Tensor:
+    rows = torch.as_tensor(tokens, dtype=torch.long)
+    valid = rows.ne(metadata.pad_id)
+    if not include_bos:
+        valid = valid.logical_and(rows.ne(metadata.bos_id))
+    if not include_eos:
+        valid = valid.logical_and(rows.ne(metadata.eos_id))
+    return valid
+
+
 def label_values_from_text_tokens(tokens: torch.Tensor, metadata: TextMetadata, unknown_value: int = -1) -> torch.Tensor:
     rows = torch.as_tensor(tokens, dtype=torch.long)
-    reference = metadata.label_text_tokens.to(rows.device)
-    matches = rows.unsqueeze(1).eq(reference.unsqueeze(0)).all(dim=-1)
-    any_match = matches.any(dim=1)
-    indices = matches.float().argmax(dim=1)
-    label_values = torch.tensor(metadata.label_values, dtype=torch.long, device=rows.device)
-    resolved = label_values.index_select(0, indices.clamp_max(len(metadata.label_values) - 1))
-    return torch.where(any_match, resolved, torch.full_like(resolved, unknown_value))
+    decoded = decode_text_tokens(rows, metadata)
+    value_by_string = {text: value for value, text in zip(metadata.label_values, metadata.label_strings)}
+    resolved = [value_by_string.get(text, unknown_value) for text in decoded]
+    return torch.tensor(resolved, dtype=torch.long, device=rows.device)
 
 
 def shifted_label_text_tokens(metadata: TextMetadata, token_offset: int = 0) -> torch.Tensor:
