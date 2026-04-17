@@ -10,6 +10,7 @@ from .runtime import RunContext, ensure_project_dirs
 from .train import train_stage
 from .visualize import export_visualizations
 from .ablation import run_compact_ablation
+from .i2t_power_sweep import run_i2t_power_sweep
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -32,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
     ablate = subparsers.add_parser("ablate-compact")
     ablate.add_argument("--compact-config", required=True)
     ablate.add_argument("--full-config", required=True)
+
+    sweep = subparsers.add_parser("sweep-i2t-power")
+    sweep.add_argument("--long-config", default="configs/flm_joint_work_fullvocab_tsw075.yaml")
+    sweep.add_argument("--short-config", action="append", dest="short_configs")
+    sweep.add_argument("--snapshot-model-path")
 
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--config", required=True)
@@ -81,6 +87,21 @@ def _run_compact_ablation(compact_config_path: str, full_config_path: str) -> in
     return 0
 
 
+def _run_sweep_i2t_power(
+    long_config_path: str,
+    short_config_paths: list[str] | None,
+    snapshot_model_path: str | None,
+) -> int:
+    long_config = load_config(long_config_path)
+    ensure_project_dirs(long_config)
+    run_i2t_power_sweep(
+        long_config_path=long_config_path,
+        short_config_paths=short_config_paths,
+        snapshot_model_path=snapshot_model_path,
+    )
+    return 0
+
+
 def _run_smoke(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -110,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_visualize(args.config)
     if args.command == "ablate-compact":
         return _run_compact_ablation(args.compact_config, args.full_config)
+    if args.command == "sweep-i2t-power":
+        return _run_sweep_i2t_power(args.long_config, args.short_configs, args.snapshot_model_path)
     if args.command == "smoke":
         return _run_smoke(args.config)
     return 1

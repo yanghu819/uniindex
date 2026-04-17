@@ -54,3 +54,25 @@ def test_load_cifar10_fullvocab_quick_config():
     assert config.dataset.name == "cifar10"
     assert config.tokenizer.compact_vocab is False
     assert config.train.batch_size == 2
+
+
+def test_load_fullvocab_tsw075_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075.yaml")
+    assert config.train.text_sequence_weight == 0.75
+    assert config.train.image_to_text_text_time_power == 4.0
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075"
+
+
+def test_load_i2t_power_short_configs():
+    expected = {
+        "configs/flm_joint_work_fullvocab_short_i2tp20_tsw075.yaml": 2.0,
+        "configs/flm_joint_work_fullvocab_short_i2tp40_tsw075.yaml": 4.0,
+        "configs/flm_joint_work_fullvocab_short_i2tp60_tsw075.yaml": 6.0,
+    }
+    for path, power in expected.items():
+        config = load_config(path)
+        assert config.train.text_sequence_weight == 0.75
+        assert config.train.stage1_steps == 200
+        assert config.train.stage2_steps == 400
+        assert config.train.image_to_text_text_time_power == power
+        assert config.sampling.image_to_text_text_time_power == power

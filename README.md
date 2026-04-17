@@ -15,20 +15,23 @@ The repository is designed for single-GPU execution with all caches and outputs 
 
 - `setup.sh`: create the `uv` environment and install pinned dependencies
 - `down.sh`: download and prepare datasets, tokenizer assets, and the evaluation classifier
-- `run.sh`: run `smoke`, `stage1`, `stage2`, or `eval`
+- `run.sh`: canonical entrypoint for `prepare`, `smoke`, `stage1`, `stage2`, `eval`, `visualize`, and `sweep-i2t-power`
 - `src/uniindex/`: Python package
 - `configs/default.yaml`: main config for the A100 path
 - `configs/smoke.yaml`: tiny local config with a dummy tokenizer for fast checks
+- `docs/active_baseline.md`: active branch, baseline config, and current best result
 
 ## Quick start
 
 ```bash
 ./setup.sh
 ./down.sh --config configs/default.yaml
+./run.sh prepare --config configs/flm_joint_work_fullvocab_tsw075.yaml
 ./run.sh smoke
 ./run.sh stage1
 ./run.sh stage2
 ./run.sh eval
+./run.sh sweep-i2t-power
 ```
 
 ## Notes
@@ -36,3 +39,4 @@ The repository is designed for single-GPU execution with all caches and outputs 
 - The default config uses the official Emu3.5 VisionTokenizer via `transformers` remote code.
 - The smoke config swaps in a tiny deterministic dummy tokenizer so local validation does not depend on a large model download.
 - All runtime metadata is written under `runs/<run_id>/metadata.json`.
+- `run.sh` pins `PYTHONPATH` to the local `src/` tree so detached worktrees do not accidentally import another editable install.
