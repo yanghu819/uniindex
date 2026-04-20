@@ -34,9 +34,23 @@
 - `run.sh` exports `PYTHONPATH=$ROOT/src`, so every worktree resolves the local code instead of an unrelated editable install
 - `configs_generated/` is runtime-only and should stay untracked
 
+## Recent text-weight sweep
+
+- Short sweep summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/text_weight_sweep/20260420T033259Z/summary.json`
+- Short winner: `text_sequence_weight = 1.0`
+  - `image_to_text_label_accuracy_constrained = 0.109375`
+  - `text_to_image_accuracy = 0.13671875`
+- Long promotion summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/text_weight_long/20260420T035303Z/summary.json`
+- Long promotion metrics for `text_sequence_weight = 1.0`:
+  - `image_to_text_exact_match = 0.06640625`
+  - `image_to_text_label_accuracy_constrained = 0.1171875`
+  - `text_to_image_accuracy = 0.84765625`
+  - `unconditional_consistency = 0.671875`
+- Decision: do not promote `text_sequence_weight = 1.0`; keep the current `0.75` baseline.
+
 ## Next experiment
 
-Hold the current baseline fixed except for `text_sequence_weight`, and run a short sweep over `0.75`, `1.0`, and `1.25`. Promote only if the winner improves image-to-text exact or constrained accuracy without dropping `text_to_image_accuracy` below `0.90` or `unconditional_consistency` below `0.75`.
+Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should be eval-only sampling sensitivity on the current best checkpoint, especially `sampling.steps` and image-to-text text schedule, before another long training run.
 
 ## Archived local trees
 
