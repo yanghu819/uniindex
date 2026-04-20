@@ -70,10 +70,19 @@ def _sample_unified_with_logits(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
+    integrator: str = "scheduled_euler",
+    final_decode: str = "last_endpoint",
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    if steps < 1:
+        raise ValueError(f"sampling steps must be >= 1, got {steps}")
+    if integrator not in {"scheduled_euler", "legacy_progress_euler"}:
+        raise ValueError(f"unsupported sampling integrator: {integrator}")
+    if final_decode not in {"last_endpoint", "final_model_call"}:
+        raise ValueError(f"unsupported sampling final_decode: {final_decode}")
+
     device = next(model.parameters()).device
     batch = batch_size or 1
     if condition_image_tokens is not None:
@@ -96,9 +105,9 @@ def _sample_unified_with_logits(
     if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
         effective_text_time_power = image_to_text_text_time_power
 
-    dt = 1.0 / max(steps, 1)
+    last_logits = None
     for step in range(steps):
-        progress = torch.full((batch,), step / max(steps, 1), device=device)
+        progress = torch.full((batch,), step / steps, device=device)
         t_pos = apply_schedule(
             progress=progress,
             modality_ids=modality_ids,
@@ -112,25 +121,56 @@ def _sample_unified_with_logits(
             condition_image=condition_image_tokens is not None,
             condition_text=condition_text_tokens is not None,
         )
+        if integrator == "scheduled_euler":
+            next_progress = torch.full((batch,), (step + 1) / steps, device=device)
+            next_t_pos = apply_schedule(
+                progress=next_progress,
+                modality_ids=modality_ids,
+                schedule_tables=schedule_tables,
+                image_time_power=image_time_power,
+                text_time_power=effective_text_time_power,
+            )
+            next_t_pos = condition_clean_timesteps(
+                next_t_pos,
+                layout.image_seq_len,
+                condition_image=condition_image_tokens is not None,
+                condition_text=condition_text_tokens is not None,
+            )
+            dt_pos = next_t_pos - t_pos
+        else:
+            dt_pos = torch.full_like(t_pos, 1.0 / steps)
+
         logits = model(z_t, t_pos, modality_ids)
         logits = mask_logits(logits, layout=layout)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
         v_t = (probs - z_t) / (1.0 - t_pos).unsqueeze(-1).clamp_min(1e-4)
-        z_t = z_t + dt * v_t
+        z_t = z_t + dt_pos.unsqueeze(-1) * v_t
+        last_logits = logits
         if condition_image_tokens is not None:
             z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
         if text_targets is not None:
             z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
 
-    final_t_pos = apply_schedule(
-        progress=torch.ones(batch, device=device),
-        modality_ids=modality_ids,
-        schedule_tables=schedule_tables,
-        image_time_power=image_time_power,
-        text_time_power=effective_text_time_power,
-    )
-    final_logits = model(z_t, final_t_pos, modality_ids)
-    final_logits = mask_logits(final_logits, layout=layout)
+    if final_decode == "final_model_call":
+        final_t_pos = apply_schedule(
+            progress=torch.ones(batch, device=device),
+            modality_ids=modality_ids,
+            schedule_tables=schedule_tables,
+            image_time_power=image_time_power,
+            text_time_power=effective_text_time_power,
+        )
+        final_t_pos = condition_clean_timesteps(
+            final_t_pos,
+            layout.image_seq_len,
+            condition_image=condition_image_tokens is not None,
+            condition_text=condition_text_tokens is not None,
+        )
+        final_logits = model(z_t, final_t_pos, modality_ids)
+        final_logits = mask_logits(final_logits, layout=layout)
+    else:
+        if last_logits is None:
+            raise RuntimeError("last endpoint decode requires at least one sampling step")
+        final_logits = last_logits
     return final_logits.argmax(dim=-1), final_logits
 
 
@@ -144,6 +184,8 @@ def sample_unified(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
+    integrator: str = "scheduled_euler",
+    final_decode: str = "last_endpoint",
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
@@ -157,6 +199,8 @@ def sample_unified(
         image_time_power=image_time_power,
         text_time_power=text_time_power,
         image_to_text_text_time_power=image_to_text_text_time_power,
+        integrator=integrator,
+        final_decode=final_decode,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
         condition_text_tokens=condition_text_tokens,
@@ -237,6 +281,8 @@ def evaluate(
             image_time_power=config.sampling.image_time_power,
             text_time_power=config.sampling.text_time_power,
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+            integrator=config.sampling.integrator,
+            final_decode=config.sampling.final_decode,
             condition_image_tokens=image_tokens,
             condition_text_tokens=None,
         )
@@ -266,6 +312,8 @@ def evaluate(
             image_time_power=config.sampling.image_time_power,
             text_time_power=config.sampling.text_time_power,
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+            integrator=config.sampling.integrator,
+            final_decode=config.sampling.final_decode,
             condition_image_tokens=None,
             condition_text_tokens=text_tokens,
         )[:, layout.image_slice]
@@ -285,6 +333,8 @@ def evaluate(
         image_time_power=config.sampling.image_time_power,
         text_time_power=config.sampling.text_time_power,
         image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+        integrator=config.sampling.integrator,
+        final_decode=config.sampling.final_decode,
         batch_size=uncond_count,
         condition_image_tokens=None,
         condition_text_tokens=None,

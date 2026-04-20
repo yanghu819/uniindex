@@ -129,6 +129,23 @@ case "$MODE" in
     done
     run_cli eval --config "$CONFIG"
     ;;
+  diagnose-i2t)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli diagnose-i2t --config "$CONFIG" "${ARGS[@]}"
+    ;;
   visualize)
     CONFIG="configs/default.yaml"
     while [[ $# -gt 0 ]]; do
