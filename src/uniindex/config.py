@@ -85,6 +85,8 @@ class TrainConfig:
     image_time_power: float = 1.0
     text_time_power: float = 1.0
     image_to_text_text_time_power: float | None = None
+    image_to_text_text_time_cap: float | None = None
+    image_to_text_noise_only_prob: float = 0.0
     text_sequence_weight: float = 0.0
 
 
@@ -185,7 +187,17 @@ def _normalize_text_config(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
-    return dict(raw_train)
+    normalized = dict(raw_train)
+    normalized.setdefault("image_to_text_text_time_cap", None)
+    normalized.setdefault("image_to_text_noise_only_prob", 0.0)
+    cap = normalized["image_to_text_text_time_cap"]
+    if cap is not None and not 0.0 <= float(cap) <= 1.0:
+        raise ValueError(f"image_to_text_text_time_cap must be in [0, 1], got {cap}")
+    noise_only_prob = float(normalized["image_to_text_noise_only_prob"])
+    if not 0.0 <= noise_only_prob <= 1.0:
+        raise ValueError(f"image_to_text_noise_only_prob must be in [0, 1], got {noise_only_prob}")
+    normalized["image_to_text_noise_only_prob"] = noise_only_prob
+    return normalized
 
 
 def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:

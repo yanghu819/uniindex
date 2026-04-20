@@ -8,6 +8,8 @@ def test_load_smoke_config():
     assert config.tokenizer.compact_vocab is True
     assert config.train.text_time_power == 0.5
     assert config.train.image_to_text_text_time_power is None
+    assert config.train.image_to_text_text_time_cap is None
+    assert config.train.image_to_text_noise_only_prob == 0.0
     assert config.text.strings[0] == "zero"
     assert config.text.bos_token == "<bos>"
     assert config.text.eos_token == "<eos>"
@@ -90,3 +92,12 @@ def test_load_i2t_power_short_configs():
         assert config.train.stage2_steps == 400
         assert config.train.image_to_text_text_time_power == power
         assert config.sampling.image_to_text_text_time_power == power
+
+
+def test_load_lowt_short_config():
+    config = load_config("configs/flm_joint_work_fullvocab_short_i2tp40_tsw075_lowt.yaml")
+    assert config.train.image_to_text_text_time_power == 4.0
+    assert config.train.image_to_text_text_time_cap == 0.5
+    assert config.train.image_to_text_noise_only_prob == 0.5
+    assert config.sampling.final_model_progress == 0.95
+    assert config.paths.models_dir.name == "fullvocab_short_i2tp40_tsw075_lowt"
