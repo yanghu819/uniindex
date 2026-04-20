@@ -27,6 +27,9 @@ from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
 
+_CANDIDATE_SCORE_CHUNK_SIZE = 32
+
+
 def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
     stage2_path = latest_checkpoint_path(config, "stage2")
     if not stage2_path.exists():
@@ -279,6 +282,7 @@ def _candidate_denoiser_score_text(
     progress_schedule = _candidate_score_progress_values(progress_values)
 
     scores = torch.zeros(batch, num_candidates, device=device)
+    flat_scores = scores.reshape(-1)
     for progress_value in progress_schedule:
         progress = torch.full((flat_batch,), progress_value, device=device)
         t_pos = apply_schedule(
@@ -295,20 +299,26 @@ def _candidate_denoiser_score_text(
             condition_text=False,
         )
         for _ in range(num_noise):
-            z_t = torch.zeros(flat_batch, layout.seq_len, layout.vocab_size, device=device)
-            z_t[:, layout.image_slice] = build_flm_clean_state(flat_image_tokens, layout.vocab_size)
-            clean_text = build_flm_clean_state(flat_candidate_targets, layout.vocab_size)
-            z_t[:, layout.text_slice] = mix_flm_noise(
-                clean_text,
-                t_pos[:, layout.text_slice],
-                text_valid_token_mask,
-            )
+            for start in range(0, flat_batch, _CANDIDATE_SCORE_CHUNK_SIZE):
+                end = min(start + _CANDIDATE_SCORE_CHUNK_SIZE, flat_batch)
+                chunk_t_pos = t_pos[start:end]
+                z_t = torch.zeros(end - start, layout.seq_len, layout.vocab_size, device=device)
+                z_t[:, layout.image_slice] = build_flm_clean_state(flat_image_tokens[start:end], layout.vocab_size)
+                clean_text = build_flm_clean_state(flat_candidate_targets[start:end], layout.vocab_size)
+                z_t[:, layout.text_slice] = mix_flm_noise(
+                    clean_text,
+                    chunk_t_pos[:, layout.text_slice],
+                    text_valid_token_mask,
+                )
 
-            logits = model(z_t, t_pos, modality_ids)
-            logits = mask_logits(logits, layout=layout)
-            candidate_scores = sequence_candidate_scores(logits[:, layout.text_slice], candidate_targets)
-            own_scores = candidate_scores.gather(dim=1, index=flat_candidate_indices[:, None])
-            scores += own_scores.reshape(batch, num_candidates)
+                logits = model(z_t, chunk_t_pos, modality_ids)
+                logits = mask_logits(logits, layout=layout)
+                candidate_scores = sequence_candidate_scores(logits[:, layout.text_slice], candidate_targets)
+                own_scores = candidate_scores.gather(
+                    dim=1,
+                    index=flat_candidate_indices[start:end, None],
+                ).squeeze(1)
+                flat_scores[start:end] += own_scores
 
     scores /= float(len(progress_schedule) * num_noise)
     selected_indices = scores.argmax(dim=1)
