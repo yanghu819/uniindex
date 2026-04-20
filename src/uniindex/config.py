@@ -95,8 +95,8 @@ class SamplingConfig:
     image_time_power: float = 1.0
     text_time_power: float = 1.0
     image_to_text_text_time_power: float | None = None
-    integrator: str = "scheduled_euler"
-    final_decode: str = "last_endpoint"
+    integrator: str = "legacy_progress_euler"
+    final_decode: str = "final_model_call"
 
 
 @dataclass(frozen=True)
@@ -186,8 +186,8 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_sampling)
-    normalized.setdefault("integrator", "scheduled_euler")
-    normalized.setdefault("final_decode", "last_endpoint")
+    normalized.setdefault("integrator", "legacy_progress_euler")
+    normalized.setdefault("final_decode", "final_model_call")
     return normalized
 
 

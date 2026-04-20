@@ -13,8 +13,8 @@ def test_load_smoke_config():
     assert config.text.eos_token == "<eos>"
     assert config.schedule.kind == "empirical"
     assert config.train.text_sequence_weight == 0.25
-    assert config.sampling.integrator == "scheduled_euler"
-    assert config.sampling.final_decode == "last_endpoint"
+    assert config.sampling.integrator == "legacy_progress_euler"
+    assert config.sampling.final_decode == "final_model_call"
 
 
 def test_load_understanding_config():
@@ -63,6 +63,10 @@ def test_load_fullvocab_tsw075_config():
     assert config.train.text_sequence_weight == 0.75
     assert config.train.image_to_text_text_time_power == 4.0
     assert config.train.stage2_image_to_text_repeats == 6
+    assert config.sampling.temperature == 0.7
+    assert config.sampling.image_to_text_text_time_power == 4.0
+    assert config.sampling.integrator == "legacy_progress_euler"
+    assert config.sampling.final_decode == "final_model_call"
     assert config.paths.artifacts_dir.name == "fullvocab_short_shared"
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06"
 

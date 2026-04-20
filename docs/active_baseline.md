@@ -20,8 +20,10 @@
 - `stage2_image_to_text_repeats = 6`
 - default sampling:
   - `sampling.steps = 32`
-  - `sampling.temperature = 1.0`
-  - `sampling.image_to_text_text_time_power = 1.0`
+  - `sampling.temperature = 0.7`
+  - `sampling.image_to_text_text_time_power = 4.0`
+  - `sampling.integrator = legacy_progress_euler`
+  - `sampling.final_decode = final_model_call`
 - Remote eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06/20260417T110458Z-eval/metrics.json`
 - Original checkpoint metrics with the old sampling default:
   - `image_to_text_exact_match = 0.12109375`
@@ -29,12 +31,12 @@
   - `image_to_text_label_accuracy_constrained = 0.15625`
   - `text_to_image_accuracy = 0.94140625`
   - `unconditional_consistency = 0.8125`
-- Promoted balanced sampling eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampling_t2iguard_s32_p100_t100/20260420T071930Z-eval/metrics.json`
-- Promoted balanced sampling metrics:
-  - `image_to_text_exact_match = 0.140625`
-  - `image_to_text_token_accuracy = 0.34964483030781374`
-  - `image_to_text_label_accuracy_constrained = 0.1640625`
-  - `text_to_image_accuracy = 0.96484375`
+- Active sampler A/B eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_ab_20260420T083644Z_aggressive_i2t_legacy/20260420T085118Z-eval/metrics.json`
+- Active sampler A/B metrics:
+  - `image_to_text_exact_match = 0.1484375`
+  - `image_to_text_token_accuracy = 0.36306235201262826`
+  - `image_to_text_label_accuracy_constrained = 0.16796875`
+  - `text_to_image_accuracy = 0.93359375`
   - `unconditional_consistency = 0.796875`
 
 ## Canonical execution
@@ -73,11 +75,19 @@
   - `image_to_text_label_accuracy_constrained = 0.1640625`
   - `text_to_image_accuracy = 0.96484375`
   - `unconditional_consistency = 0.796875`
-- Decision: promote the guarded winner as the default eval sampling config. Keep the broad best as an aggressive image-to-text option, not the default, because it drops `text_to_image_accuracy` below `0.90`.
+- Sampler A/B summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_ab/20260420T083644Z/summary.json`
+- Best A/B result: `sampling.steps = 32`, `sampling.temperature = 0.7`, `sampling.image_to_text_text_time_power = 4.0`, `integrator = legacy_progress_euler`, `final_decode = final_model_call`
+  - `image_to_text_exact_match = 0.1484375`
+  - `image_to_text_label_accuracy_constrained = 0.16796875`
+  - `text_to_image_accuracy = 0.93359375`
+  - `unconditional_consistency = 0.796875`
+- Scheduled-Euler diagnostic result: the paper-style `scheduled_euler + last_endpoint` sampler underperforms on the current checkpoint, e.g. `confirm_best_fixed` gets `image_to_text_exact_match = 0.12109375`, `text_to_image_accuracy = 0.87109375`, and `unconditional_consistency = 0.640625`.
+- Denoiser-oracle diagnostics: direct image-conditioned `D_t` is strong at high text time. At `progress = 0.95`, exact is `0.94921875` and constrained label accuracy is `0.96875` in `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_ab_20260420T083644Z_confirm_best_fixed/20260420T085614Z-diagnose-i2t/i2t_diagnostics.json`.
+- Decision: keep the legacy sampler as the active default for the current checkpoint. The low free-running i2t score is primarily a sampling/ODE issue, not evidence that the denoiser lacks image understanding.
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should be a narrow confirmation around the promoted sampling point, then a real training-side change only if the confirmation holds.
+Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should target sampler/time-conditioning alignment: evaluate a final-step endpoint projection or train with a time parameterization matching the scheduled Euler sampler before changing task mix.
 
 ## Archived local trees
 
