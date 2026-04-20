@@ -2,9 +2,10 @@ import math
 
 import torch
 
-from uniindex.eval import _sample_unified_with_logits
+from uniindex.eval import _candidate_denoiser_score_text, _sample_unified_with_logits
 from uniindex.layout import TaskLayout
 from uniindex.state import build_flm_clean_state
+from uniindex.text import build_text_metadata
 
 
 class StaticEndpointModel(torch.nn.Module):
@@ -25,6 +26,26 @@ class StaticEndpointModel(torch.nn.Module):
         self.inputs.append(z_t.detach().clone())
         self.times.append(t.detach().clone())
         return self.logits_template.to(z_t.device).unsqueeze(0).expand(z_t.shape[0], -1, -1)
+
+
+class CandidatePreferenceModel(torch.nn.Module):
+    def __init__(self, layout: TaskLayout, preferred_text_targets: torch.Tensor) -> None:
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+        self.layout = layout
+        self.register_buffer("preferred_text_targets", preferred_text_targets.long())
+
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        del t, modality_ids
+        logits = torch.full(
+            (z_t.shape[0], self.layout.seq_len, self.layout.vocab_size),
+            -10.0,
+            device=z_t.device,
+        )
+        logits[:, self.layout.image_slice, 0] = 10.0
+        for offset, token_id in enumerate(self.preferred_text_targets.tolist()):
+            logits[:, self.layout.image_seq_len + offset, token_id] = 10.0
+        return logits
 
 
 def test_scheduled_euler_uses_physical_schedule_delta():
@@ -91,6 +112,28 @@ def test_last_endpoint_decode_skips_extra_final_model_call():
     assert len(model_with_final_call.inputs) == 4
 
 
+def test_final_model_progress_controls_final_call_time():
+    layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=2)
+    model = StaticEndpointModel()
+    _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=0.5,
+        batch_size=1,
+    )
+
+    assert len(model.times) == 2
+    assert torch.allclose(model.times[-1], torch.full((1, layout.seq_len), 0.5))
+
+
 def test_conditioned_image_slice_stays_clean_between_steps():
     torch.manual_seed(0)
     layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=2)
@@ -112,3 +155,40 @@ def test_conditioned_image_slice_stays_clean_between_steps():
     clean_image = build_flm_clean_state(image_tokens, layout.vocab_size)
     assert torch.equal(model.inputs[0][:, layout.image_slice], clean_image)
     assert torch.equal(model.inputs[1][:, layout.image_slice], clean_image)
+
+
+def test_candidate_denoiser_score_selects_best_candidate_without_labels():
+    torch.manual_seed(0)
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    preferred = metadata.label_text_tokens[1] + layout.text_offset
+    model = CandidatePreferenceModel(layout, preferred_text_targets=preferred)
+
+    selected_text, selected_indices, scores = _candidate_denoiser_score_text(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        image_tokens=torch.tensor([[0], [1]]),
+        text_metadata=metadata,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        progress_values=[0.5],
+        num_noise=2,
+    )
+
+    assert scores.shape == (2, 2)
+    assert selected_indices.tolist() == [1, 1]
+    assert torch.equal(selected_text, metadata.label_text_tokens[[1, 1]])
