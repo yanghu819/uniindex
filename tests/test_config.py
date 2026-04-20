@@ -60,7 +60,9 @@ def test_load_fullvocab_tsw075_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075.yaml")
     assert config.train.text_sequence_weight == 0.75
     assert config.train.image_to_text_text_time_power == 4.0
-    assert config.paths.runs_dir.name == "fullvocab_long_tsw075"
+    assert config.train.stage2_image_to_text_repeats == 6
+    assert config.paths.artifacts_dir.name == "fullvocab_short_shared"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06"
 
 
 def test_load_i2t_power_short_configs():

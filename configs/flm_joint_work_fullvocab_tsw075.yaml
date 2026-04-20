@@ -1,12 +1,12 @@
 project:
-  name: uniindex-fullvocab-long-tsw075
+  name: uniindex-fullvocab-long-tsw075-i2tr06
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts
-  models_dir: models/fullvocab_long_tsw075
-  runs_dir: runs/fullvocab_long_tsw075
-  logs_dir: logs/fullvocab_long_tsw075
+  artifacts_dir: artifacts/fullvocab_short_shared
+  models_dir: models/fullvocab_long_tsw075_i2tr06
+  runs_dir: runs/fullvocab_long_tsw075_i2tr06
+  logs_dir: logs/fullvocab_long_tsw075_i2tr06
   cache_dir: .cache
 
 tokenizer:
@@ -57,7 +57,7 @@ train:
   text_sequence_weight: 0.75
   stage2_joint_repeats: 2
   stage2_text_to_image_repeats: 2
-  stage2_image_to_text_repeats: 4
+  stage2_image_to_text_repeats: 6
   image_time_power: 1.0
   text_time_power: 0.25
   image_to_text_text_time_power: 4.0

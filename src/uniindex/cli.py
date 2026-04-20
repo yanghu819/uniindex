@@ -11,6 +11,7 @@ from .train import train_stage
 from .visualize import export_visualizations
 from .ablation import run_compact_ablation
 from .i2t_power_sweep import run_i2t_power_sweep
+from .i2t_repeats_sweep import run_i2t_repeats_sweep
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -38,6 +39,12 @@ def _parser() -> argparse.ArgumentParser:
     sweep.add_argument("--long-config", default="configs/flm_joint_work_fullvocab_tsw075.yaml")
     sweep.add_argument("--short-config", action="append", dest="short_configs")
     sweep.add_argument("--snapshot-model-path")
+
+    repeats_sweep = subparsers.add_parser("sweep-i2t-repeats")
+    repeats_sweep.add_argument("--long-config", default="configs/flm_joint_work_fullvocab_tsw075.yaml")
+    repeats_sweep.add_argument("--short-base-config", default="configs/flm_joint_work_fullvocab_short_i2tp40_tsw075.yaml")
+    repeats_sweep.add_argument("--repeats", action="append", type=int, dest="repeats_values")
+    repeats_sweep.add_argument("--snapshot-model-path")
 
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--config", required=True)
@@ -102,6 +109,23 @@ def _run_sweep_i2t_power(
     return 0
 
 
+def _run_sweep_i2t_repeats(
+    long_config_path: str,
+    short_base_config_path: str,
+    repeats_values: list[int] | None,
+    snapshot_model_path: str | None,
+) -> int:
+    long_config = load_config(long_config_path)
+    ensure_project_dirs(long_config)
+    run_i2t_repeats_sweep(
+        long_config_path=long_config_path,
+        short_base_config_path=short_base_config_path,
+        repeats_values=repeats_values,
+        snapshot_model_path=snapshot_model_path,
+    )
+    return 0
+
+
 def _run_smoke(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -133,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
         return _run_compact_ablation(args.compact_config, args.full_config)
     if args.command == "sweep-i2t-power":
         return _run_sweep_i2t_power(args.long_config, args.short_configs, args.snapshot_model_path)
+    if args.command == "sweep-i2t-repeats":
+        return _run_sweep_i2t_repeats(
+            args.long_config,
+            args.short_base_config,
+            args.repeats_values,
+            args.snapshot_model_path,
+        )
     if args.command == "smoke":
         return _run_smoke(args.config)
     return 1
