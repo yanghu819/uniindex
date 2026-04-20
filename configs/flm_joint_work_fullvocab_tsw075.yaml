@@ -70,6 +70,7 @@ sampling:
   image_to_text_text_time_power: 4.0
   integrator: legacy_progress_euler
   final_decode: final_model_call
+  final_model_progress: 0.95
 
 schedule:
   kind: empirical
