@@ -63,11 +63,11 @@ train:
   image_to_text_text_time_power: 4.0
 
 sampling:
-  steps: 8
+  steps: 32
   temperature: 1.0
   image_time_power: 1.0
   text_time_power: 0.25
-  image_to_text_text_time_power: 4.0
+  image_to_text_text_time_power: 1.0
 
 schedule:
   kind: empirical
