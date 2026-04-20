@@ -71,7 +71,7 @@ def test_load_fullvocab_tsw075_config():
     assert config.sampling.image_to_text_text_time_power == 4.0
     assert config.sampling.integrator == "legacy_progress_euler"
     assert config.sampling.final_decode == "final_model_call"
-    assert config.sampling.final_model_progress == 1.0
+    assert config.sampling.final_model_progress == 0.95
     assert config.sampling.image_to_text_decoder == "sample"
     assert config.paths.artifacts_dir.name == "fullvocab_short_shared"
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06"

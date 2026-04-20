@@ -24,6 +24,7 @@
   - `sampling.image_to_text_text_time_power = 4.0`
   - `sampling.integrator = legacy_progress_euler`
   - `sampling.final_decode = final_model_call`
+  - `sampling.final_model_progress = 0.95`
 - Remote eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06/20260417T110458Z-eval/metrics.json`
 - Original checkpoint metrics with the old sampling default:
   - `image_to_text_exact_match = 0.12109375`
@@ -38,6 +39,13 @@
   - `image_to_text_label_accuracy_constrained = 0.16796875`
   - `text_to_image_accuracy = 0.93359375`
   - `unconditional_consistency = 0.796875`
+- Active decoder sweep path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/decoder_ab/20260420T105052Z/sample_fmp095/20260420T105823Z-eval/metrics.json`
+- Active decoder sweep metrics:
+  - `image_to_text_exact_match = 0.15234375`
+  - `image_to_text_token_accuracy = 0.36779794790844517`
+  - `image_to_text_label_accuracy_constrained = 0.17578125`
+  - `text_to_image_accuracy = 0.96484375`
+  - `unconditional_consistency = 0.8125`
 
 ## Canonical execution
 
@@ -83,11 +91,23 @@
   - `unconditional_consistency = 0.796875`
 - Scheduled-Euler diagnostic result: the paper-style `scheduled_euler + last_endpoint` sampler underperforms on the current checkpoint, e.g. `confirm_best_fixed` gets `image_to_text_exact_match = 0.12109375`, `text_to_image_accuracy = 0.87109375`, and `unconditional_consistency = 0.640625`.
 - Denoiser-oracle diagnostics: direct image-conditioned `D_t` is strong at high text time. At `progress = 0.95`, exact is `0.94921875` and constrained label accuracy is `0.96875` in `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_ab_20260420T083644Z_confirm_best_fixed/20260420T085614Z-diagnose-i2t/i2t_diagnostics.json`.
-- Decision: keep the legacy sampler as the active default for the current checkpoint. The low free-running i2t score is primarily a sampling/ODE issue, not evidence that the denoiser lacks image understanding.
+- Decoder A/B summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/decoder_ab/20260420T105052Z/summary.json`
+- Best sample-decoder result: `final_model_progress = 0.95`
+  - `image_to_text_exact_match = 0.15234375`
+  - `image_to_text_label_accuracy_constrained = 0.17578125`
+  - `text_to_image_accuracy = 0.96484375`
+  - `unconditional_consistency = 0.8125`
+- Candidate denoiser-score result: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/decoder_ab/20260420T110918Z_candidate_chunked/summary.json`
+  - `image_to_text_exact_match = 0.16796875`
+  - `image_to_text_label_accuracy_constrained = 0.16796875`
+  - `image_to_text_token_accuracy = 0.3291239147592739`
+  - `text_to_image_accuracy = 0.921875`
+  - `unconditional_consistency = 0.84375`
+- Decision: promote `final_model_progress = 0.95` in the active config. Keep `image_to_text_decoder = sample` as default; `candidate_denoiser_score` is useful as a label-rerank diagnostic but hurts free text token accuracy.
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should target sampler/time-conditioning alignment: evaluate a final-step endpoint projection or train with a time parameterization matching the scheduled Euler sampler before changing task mix.
+Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: train a short run with decoder-aligned endpoint time or add a lightweight consistency loss before changing task mix.
 
 ## Archived local trees
 
