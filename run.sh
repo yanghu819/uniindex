@@ -147,6 +147,9 @@ case "$MODE" in
   sweep-i2t-power)
     run_cli sweep-i2t-power "$@"
     ;;
+  sweep-i2t-repeats)
+    run_cli sweep-i2t-repeats "$@"
+    ;;
   *)
     echo "Unknown mode: $MODE" >&2
     exit 1
