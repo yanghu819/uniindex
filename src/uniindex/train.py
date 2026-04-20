@@ -74,6 +74,29 @@ def _task_time_schedule(
     )
 
 
+def _apply_image_to_text_noise_policy(
+    t_pos: torch.Tensor,
+    layout: TaskLayout,
+    task: str,
+    *,
+    text_time_cap: float | None,
+    noise_only_prob: float,
+) -> torch.Tensor:
+    if task != "image_to_text":
+        return t_pos
+    adjusted = t_pos.clone()
+    if text_time_cap is not None:
+        adjusted[:, layout.text_slice] = adjusted[:, layout.text_slice].clamp_max(float(text_time_cap))
+    if noise_only_prob <= 0.0:
+        return adjusted
+    if noise_only_prob >= 1.0:
+        adjusted[:, layout.text_slice] = 0.0
+        return adjusted
+    noise_only = torch.rand(adjusted.shape[0], device=adjusted.device).lt(float(noise_only_prob))
+    adjusted[noise_only, layout.text_slice] = 0.0
+    return adjusted
+
+
 def _masked_text_loss(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -239,6 +262,13 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             layout.image_seq_len,
             condition_image=task == "image_to_text",
             condition_text=task == "text_to_image",
+        )
+        t_pos = _apply_image_to_text_noise_policy(
+            t_pos,
+            layout,
+            task,
+            text_time_cap=config.train.image_to_text_text_time_cap,
+            noise_only_prob=config.train.image_to_text_noise_only_prob,
         )
         z_t = _build_zt(x1, t_pos, layout, task, valid_token_mask)
         logits = model(z_t, t_pos, modality_ids)
