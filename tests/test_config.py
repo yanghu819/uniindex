@@ -13,6 +13,8 @@ def test_load_smoke_config():
     assert config.text.eos_token == "<eos>"
     assert config.schedule.kind == "empirical"
     assert config.train.text_sequence_weight == 0.25
+    assert config.sampling.integrator == "scheduled_euler"
+    assert config.sampling.final_decode == "last_endpoint"
 
 
 def test_load_understanding_config():
