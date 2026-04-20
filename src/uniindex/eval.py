@@ -14,7 +14,7 @@ from .layout import TaskLayout, mask_logits
 from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
-from .state import build_flm_clean_state, condition_clean_timesteps, restore_image_tokens, sample_masked_noise
+from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise, restore_image_tokens, sample_masked_noise
 from .text import (
     decode_text_tokens,
     label_values_from_text_tokens,
@@ -70,8 +70,9 @@ def _sample_unified_with_logits(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
-    integrator: str = "scheduled_euler",
-    final_decode: str = "last_endpoint",
+    integrator: str = "legacy_progress_euler",
+    final_decode: str = "final_model_call",
+    final_model_progress: float = 1.0,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
@@ -82,6 +83,8 @@ def _sample_unified_with_logits(
         raise ValueError(f"unsupported sampling integrator: {integrator}")
     if final_decode not in {"last_endpoint", "final_model_call"}:
         raise ValueError(f"unsupported sampling final_decode: {final_decode}")
+    if not 0.0 <= final_model_progress <= 1.0:
+        raise ValueError(f"final_model_progress must be in [0, 1], got {final_model_progress}")
 
     device = next(model.parameters()).device
     batch = batch_size or 1
@@ -153,7 +156,7 @@ def _sample_unified_with_logits(
 
     if final_decode == "final_model_call":
         final_t_pos = apply_schedule(
-            progress=torch.ones(batch, device=device),
+            progress=torch.full((batch,), float(final_model_progress), device=device),
             modality_ids=modality_ids,
             schedule_tables=schedule_tables,
             image_time_power=image_time_power,
@@ -184,8 +187,9 @@ def sample_unified(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
-    integrator: str = "scheduled_euler",
-    final_decode: str = "last_endpoint",
+    integrator: str = "legacy_progress_euler",
+    final_decode: str = "final_model_call",
+    final_model_progress: float = 1.0,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
@@ -201,6 +205,7 @@ def sample_unified(
         image_to_text_text_time_power=image_to_text_text_time_power,
         integrator=integrator,
         final_decode=final_decode,
+        final_model_progress=final_model_progress,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
         condition_text_tokens=condition_text_tokens,
@@ -219,6 +224,96 @@ def constrained_text_label_values(
     indices = scores.argmax(dim=1)
     label_values = torch.tensor(text_metadata.label_values, dtype=torch.long, device=text_logits.device)
     return label_values.index_select(0, indices)
+
+
+def _candidate_score_progress_values(progress_values: list[float] | None) -> list[float]:
+    values = [0.5, 0.75, 0.9, 0.95] if progress_values is None else list(progress_values)
+    if not values:
+        raise ValueError("candidate_score_progress must contain at least one value")
+    for value in values:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(f"candidate_score_progress values must be in [0, 1], got {value}")
+    return [float(value) for value in values]
+
+
+@torch.inference_mode()
+def _candidate_denoiser_score_text(
+    model: UnifiedDenoiser,
+    layout: TaskLayout,
+    schedule_tables: dict,
+    image_tokens: torch.Tensor,
+    text_metadata,
+    *,
+    image_time_power: float,
+    text_time_power: float,
+    image_to_text_text_time_power: float | None,
+    progress_values: list[float] | None,
+    num_noise: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if num_noise < 1:
+        raise ValueError(f"candidate_score_num_noise must be >= 1, got {num_noise}")
+
+    device = image_tokens.device
+    batch = image_tokens.shape[0]
+    candidate_text = text_metadata.label_text_tokens.to(device)
+    candidate_targets = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size).to(device)
+    if candidate_targets.shape[1] != layout.text_seq_len:
+        raise ValueError(
+            f"candidate text length {candidate_targets.shape[1]} does not match layout text length {layout.text_seq_len}"
+        )
+
+    num_candidates = candidate_targets.shape[0]
+    flat_batch = batch * num_candidates
+    modality_ids = layout.position_modalities().to(device)
+    valid_token_mask = layout.position_valid_token_mask().to(device)
+    text_valid_token_mask = valid_token_mask[layout.text_slice]
+    effective_text_time_power = text_time_power
+    if image_to_text_text_time_power is not None:
+        effective_text_time_power = image_to_text_text_time_power
+
+    flat_image_tokens = image_tokens[:, None, :].expand(batch, num_candidates, layout.image_seq_len)
+    flat_image_tokens = flat_image_tokens.reshape(flat_batch, layout.image_seq_len)
+    flat_candidate_targets = candidate_targets[None, :, :].expand(batch, num_candidates, layout.text_seq_len)
+    flat_candidate_targets = flat_candidate_targets.reshape(flat_batch, layout.text_seq_len)
+    flat_candidate_indices = torch.arange(num_candidates, device=device).repeat(batch)
+    progress_schedule = _candidate_score_progress_values(progress_values)
+
+    scores = torch.zeros(batch, num_candidates, device=device)
+    for progress_value in progress_schedule:
+        progress = torch.full((flat_batch,), progress_value, device=device)
+        t_pos = apply_schedule(
+            progress=progress,
+            modality_ids=modality_ids,
+            schedule_tables=schedule_tables,
+            image_time_power=image_time_power,
+            text_time_power=effective_text_time_power,
+        )
+        t_pos = condition_clean_timesteps(
+            t_pos,
+            layout.image_seq_len,
+            condition_image=True,
+            condition_text=False,
+        )
+        for _ in range(num_noise):
+            z_t = torch.zeros(flat_batch, layout.seq_len, layout.vocab_size, device=device)
+            z_t[:, layout.image_slice] = build_flm_clean_state(flat_image_tokens, layout.vocab_size)
+            clean_text = build_flm_clean_state(flat_candidate_targets, layout.vocab_size)
+            z_t[:, layout.text_slice] = mix_flm_noise(
+                clean_text,
+                t_pos[:, layout.text_slice],
+                text_valid_token_mask,
+            )
+
+            logits = model(z_t, t_pos, modality_ids)
+            logits = mask_logits(logits, layout=layout)
+            candidate_scores = sequence_candidate_scores(logits[:, layout.text_slice], candidate_targets)
+            own_scores = candidate_scores.gather(dim=1, index=flat_candidate_indices[:, None])
+            scores += own_scores.reshape(batch, num_candidates)
+
+    scores /= float(len(progress_schedule) * num_noise)
+    selected_indices = scores.argmax(dim=1)
+    selected_text = candidate_text.index_select(0, selected_indices)
+    return selected_text, selected_indices, scores
 
 
 @torch.inference_mode()
@@ -262,6 +357,10 @@ def evaluate(
     image_to_text_position_total = torch.zeros(layout.text_seq_len, dtype=torch.long)
     generated_text_counter: Counter[str] = Counter()
     total = 0
+    image_to_text_decoder = config.sampling.image_to_text_decoder
+    if image_to_text_decoder not in {"sample", "candidate_denoiser_score"}:
+        raise ValueError(f"unsupported image_to_text_decoder: {image_to_text_decoder}")
+    label_values = torch.tensor(text_metadata.label_values, dtype=torch.long, device=device)
 
     for batch in tqdm(test_loader, desc="eval"):
         image_tokens = batch["image_tokens"].to(device)
@@ -272,21 +371,43 @@ def evaluate(
         ceiling_pred = classify_images(classifier, decoded, config.dataset.name)
         ceiling_correct += (ceiling_pred == labels).sum().item()
 
-        sampled_tokens, final_logits = _sample_unified_with_logits(
-            model=model,
-            layout=layout,
-            schedule_tables=schedule_tables,
-            temperature=config.sampling.temperature,
-            steps=config.sampling.steps,
-            image_time_power=config.sampling.image_time_power,
-            text_time_power=config.sampling.text_time_power,
-            image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
-            integrator=config.sampling.integrator,
-            final_decode=config.sampling.final_decode,
-            condition_image_tokens=image_tokens,
-            condition_text_tokens=None,
-        )
-        sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
+        if image_to_text_decoder == "sample":
+            sampled_tokens, final_logits = _sample_unified_with_logits(
+                model=model,
+                layout=layout,
+                schedule_tables=schedule_tables,
+                temperature=config.sampling.temperature,
+                steps=config.sampling.steps,
+                image_time_power=config.sampling.image_time_power,
+                text_time_power=config.sampling.text_time_power,
+                image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                integrator=config.sampling.integrator,
+                final_decode=config.sampling.final_decode,
+                final_model_progress=config.sampling.final_model_progress,
+                condition_image_tokens=image_tokens,
+                condition_text_tokens=None,
+            )
+            sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
+            constrained_values = constrained_text_label_values(
+                final_logits[:, layout.text_slice],
+                text_metadata,
+                codebook_size=layout.codebook_size,
+            )
+        else:
+            sampled_text, selected_candidate_indices, _ = _candidate_denoiser_score_text(
+                model=model,
+                layout=layout,
+                schedule_tables=schedule_tables,
+                image_tokens=image_tokens,
+                text_metadata=text_metadata,
+                image_time_power=config.sampling.image_time_power,
+                text_time_power=config.sampling.text_time_power,
+                image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                progress_values=config.sampling.candidate_score_progress,
+                num_noise=config.sampling.candidate_score_num_noise,
+            )
+            constrained_values = label_values.index_select(0, selected_candidate_indices)
+
         sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
         target_text_strings = decode_text_tokens(text_tokens, text_metadata)
         image_to_text_exact += sum(pred == target for pred, target in zip(sampled_text_strings, target_text_strings))
@@ -296,11 +417,6 @@ def evaluate(
         image_to_text_position_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum(dim=0).cpu()
         image_to_text_position_total += valid_text.sum(dim=0).cpu()
         generated_text_counter.update(sampled_text_strings)
-        constrained_values = constrained_text_label_values(
-            final_logits[:, layout.text_slice],
-            text_metadata,
-            codebook_size=layout.codebook_size,
-        )
         image_to_text_constrained_correct += (constrained_values == labels).sum().item()
 
         sampled_images = sample_unified(
@@ -314,6 +430,7 @@ def evaluate(
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
             integrator=config.sampling.integrator,
             final_decode=config.sampling.final_decode,
+            final_model_progress=config.sampling.final_model_progress,
             condition_image_tokens=None,
             condition_text_tokens=text_tokens,
         )[:, layout.image_slice]
@@ -335,6 +452,7 @@ def evaluate(
         image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
         integrator=config.sampling.integrator,
         final_decode=config.sampling.final_decode,
+        final_model_progress=config.sampling.final_model_progress,
         batch_size=uncond_count,
         condition_image_tokens=None,
         condition_text_tokens=None,
@@ -358,6 +476,14 @@ def evaluate(
         json.dump(metrics, handle, indent=2)
 
     diagnostics = {
+        "image_to_text_decoder": image_to_text_decoder,
+        "final_model_progress": config.sampling.final_model_progress,
+        "candidate_score_progress": _candidate_score_progress_values(config.sampling.candidate_score_progress)
+        if image_to_text_decoder == "candidate_denoiser_score"
+        else None,
+        "candidate_score_num_noise": config.sampling.candidate_score_num_noise
+        if image_to_text_decoder == "candidate_denoiser_score"
+        else None,
         "image_to_text_position_accuracy": [
             correct / max(total_count, 1)
             for correct, total_count in zip(

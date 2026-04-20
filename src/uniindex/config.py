@@ -97,6 +97,10 @@ class SamplingConfig:
     image_to_text_text_time_power: float | None = None
     integrator: str = "legacy_progress_euler"
     final_decode: str = "final_model_call"
+    final_model_progress: float = 1.0
+    image_to_text_decoder: str = "sample"
+    candidate_score_progress: list[float] | None = None
+    candidate_score_num_noise: int = 4
 
 
 @dataclass(frozen=True)
@@ -188,6 +192,10 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_sampling)
     normalized.setdefault("integrator", "legacy_progress_euler")
     normalized.setdefault("final_decode", "final_model_call")
+    normalized.setdefault("final_model_progress", 1.0)
+    normalized.setdefault("image_to_text_decoder", "sample")
+    normalized.setdefault("candidate_score_progress", None)
+    normalized.setdefault("candidate_score_num_noise", 4)
     return normalized
 
 
