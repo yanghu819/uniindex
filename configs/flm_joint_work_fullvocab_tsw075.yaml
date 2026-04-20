@@ -64,10 +64,12 @@ train:
 
 sampling:
   steps: 32
-  temperature: 1.0
+  temperature: 0.7
   image_time_power: 1.0
   text_time_power: 0.25
-  image_to_text_text_time_power: 1.0
+  image_to_text_text_time_power: 4.0
+  integrator: legacy_progress_euler
+  final_decode: final_model_call
 
 schedule:
   kind: empirical
