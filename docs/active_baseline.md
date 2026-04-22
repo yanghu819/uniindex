@@ -50,6 +50,7 @@
 ## Canonical execution
 
 - Use `./run.sh prepare|stage1|stage2|eval --config ...`
+- Use `./run.sh diagnose-i2t-image-dependence --config ... --progress ...` to compare true-image, shuffled-image, and random-image-token controls before promoting another i2t training or sampler change.
 - Use `./run.sh sweep-i2t-power` for the 2/4/6 short sweep over `image_to_text_text_time_power`
 - Use `./run.sh sweep-i2t-repeats` for the 4/6/8 short sweep over `stage2_image_to_text_repeats`
 - `run.sh` exports `PYTHONPATH=$ROOT/src`, so every worktree resolves the local code instead of an unrelated editable install
@@ -105,6 +106,21 @@
   - `unconditional_consistency = 0.84375`
 - Decision: promote `final_model_progress = 0.95` in the active config. Keep `image_to_text_decoder = sample` as default; `candidate_denoiser_score` is useful as a label-rerank diagnostic but hurts free text token accuracy.
 
+## Active image-dependence diagnostic
+
+- Run timestamp: `2026-04-22T05:10:29Z` (`2026-04-22 13:10:29 CST`)
+- Local record timestamp: `2026-04-22T05:14:54Z` (`2026-04-22 13:14:54 CST`)
+- Remote path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06/20260422T051028Z-diagnose-i2t-image-dependence/i2t_image_dependence.json`
+- Code state: remote detached checkout `16edd16`.
+- Config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Direct denoiser control metrics:
+  - `progress = 0.50`: true label `0.41796875`, shuffled label `0.1640625`, random label `0.15234375`; true-minus-shuffled label margin `0.25390625`
+  - `progress = 0.75`: true exact `0.5546875`, shuffled exact `0.40234375`, random exact `0.44140625`; true-minus-shuffled exact margin `0.15234375`
+  - `progress = 0.90`: true exact `0.9296875`, shuffled exact `0.859375`, random exact `0.828125`; true-minus-shuffled label margin `0.01953125`
+  - `progress = 0.95`: true exact `0.98046875`, shuffled exact `0.90234375`, random exact `0.94921875`; true-minus-random label margin `0.0078125`
+- Interpretation: the active denoiser has real image signal at low and mid text times, but high-progress predictions are dominated by the text prior enough that shuffled/random controls nearly catch up. The free sampler's weak i2t result is therefore more likely a trajectory/time-conditioning alignment problem than a total lack of image-conditioned denoising.
+- Decision: keep the active baseline unchanged. The next sampler experiment should force the free trajectory to query the denoiser where the true-vs-control margin is largest, instead of only changing the final projection near `progress = 0.95`.
+
 ## Recent low-t image-dependence check
 
 - Run timestamp: `2026-04-22T04:22:35Z` (`2026-04-22 12:22:35 CST`)
@@ -129,7 +145,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: train a short run with decoder-aligned endpoint time, add a lightweight consistency loss, or add a mismatched-image contrast diagnostic before changing task mix again.
+Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: force or sweep final denoiser queries through the `progress = 0.5` to `0.75` band where true-vs-control image dependence is largest, then only consider consistency loss if sampler-only changes cannot preserve that signal.
 
 ## Archived local trees
 
