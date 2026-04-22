@@ -5,7 +5,7 @@ import sys
 
 from .config import load_config
 from .data import prepare_assets
-from .diagnostics import diagnose_i2t_denoiser
+from .diagnostics import diagnose_i2t_denoiser, diagnose_i2t_image_dependence
 from .eval import evaluate
 from .runtime import RunContext, ensure_project_dirs
 from .train import train_stage
@@ -32,6 +32,10 @@ def _parser() -> argparse.ArgumentParser:
     diagnose_i2t = subparsers.add_parser("diagnose-i2t")
     diagnose_i2t.add_argument("--config", required=True)
     diagnose_i2t.add_argument("--progress", action="append", type=float, dest="progress_values")
+
+    diagnose_i2t_image_dependence = subparsers.add_parser("diagnose-i2t-image-dependence")
+    diagnose_i2t_image_dependence.add_argument("--config", required=True)
+    diagnose_i2t_image_dependence.add_argument("--progress", action="append", type=float, dest="progress_values")
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -94,6 +98,22 @@ def _run_diagnose_i2t(config_path: str, progress_values: list[float] | None) -> 
             diagnose_i2t_denoiser(config, progress_values=tuple(progress_values), run_context=run_context)
         else:
             diagnose_i2t_denoiser(config, run_context=run_context)
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
+def _run_diagnose_i2t_image_dependence(config_path: str, progress_values: list[float] | None) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "diagnose-i2t-image-dependence")
+    try:
+        if progress_values:
+            diagnose_i2t_image_dependence(config, progress_values=tuple(progress_values), run_context=run_context)
+        else:
+            diagnose_i2t_image_dependence(config, run_context=run_context)
         run_context.update_status("ok")
     except Exception:
         run_context.update_status("error")
@@ -174,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_eval(args.config)
     if args.command == "diagnose-i2t":
         return _run_diagnose_i2t(args.config, args.progress_values)
+    if args.command == "diagnose-i2t-image-dependence":
+        return _run_diagnose_i2t_image_dependence(args.config, args.progress_values)
     if args.command == "visualize":
         return _run_visualize(args.config)
     if args.command == "ablate-compact":
