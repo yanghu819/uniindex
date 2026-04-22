@@ -105,9 +105,31 @@
   - `unconditional_consistency = 0.84375`
 - Decision: promote `final_model_progress = 0.95` in the active config. Keep `image_to_text_decoder = sample` as default; `candidate_denoiser_score` is useful as a label-rerank diagnostic but hurts free text token accuracy.
 
+## Recent low-t image-dependence check
+
+- Run timestamp: `2026-04-22T04:22:35Z` (`2026-04-22 12:22:35 CST`)
+- Local resume timestamp: `2026-04-22T04:52:52Z` (`2026-04-22 12:52:52 CST`)
+- Remote run root: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/lowt_ft/20260422T042235Z-recovery`
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/lowt_ft/20260422T042235Z-recovery/summary.json`
+- Code state: remote detached checkout `86bdfca`; local resume branch `codex/resume-schedule-fix-layout-integ` is the equivalent local tree at `7e15d46`.
+- Config: `configs/flm_joint_work_fullvocab_short_i2tp40_tsw075_lowt.yaml`
+- Eval metrics:
+  - `image_to_text_exact_match = 0.0`
+  - `image_to_text_token_accuracy = 0.2809786898184688`
+  - `image_to_text_label_accuracy_constrained = 0.08984375`
+  - `text_to_image_accuracy = 0.07421875`
+  - `unconditional_consistency = 0.0`
+- Direct i2t denoiser at `progress = 0.95`:
+  - true image: `exact = 0.0`, `label = 0.33984375`, `token = 0.4222573007103394`
+  - shuffled image: `exact = 0.0`, `label = 0.328125`, `token = 0.4151539068666141`
+  - random image tokens: `exact = 0.0`, `label = 0.3203125`, `token = 0.4151539068666141`
+- Decision: do not promote the low-t/noise-only i2t strategy. It collapses free sampling, damages text-to-image and unconditional metrics, and does not create a meaningful true-image advantage over shuffled or random image controls.
+- Environment note: the run reached completion, but the eval log showed Hugging Face remote-code activity for the Emu3.5 tokenizer path despite offline env vars. Before any longer run, pin or vendor/cache the tokenizer code so `HF_HUB_OFFLINE=1` is actually sufficient.
+- Lesson: low text time alone makes the text channel less useful, but it does not force the model to bind labels to the image condition. The next i2t change should use an explicit image-dependence check or sampler/time-conditioning alignment target, not just more task-mix pressure.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: train a short run with decoder-aligned endpoint time or add a lightweight consistency loss before changing task mix.
+Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: train a short run with decoder-aligned endpoint time, add a lightweight consistency loss, or add a mismatched-image contrast diagnostic before changing task mix again.
 
 ## Archived local trees
 
