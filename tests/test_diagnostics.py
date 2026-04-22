@@ -1,6 +1,7 @@
 import torch
+import pytest
 
-from uniindex.diagnostics import _image_condition_tokens, _image_dependence_margins
+from uniindex.diagnostics import _image_condition_tokens, _image_dependence_margins, _trace_step_requests
 
 
 def test_image_condition_tokens_builds_control_batches():
@@ -64,3 +65,17 @@ def test_image_dependence_margins_compare_true_to_controls():
             "true_minus_random_exact": 0.4,
         }
     ]
+
+
+def test_trace_step_requests_map_progress_to_nearest_sampler_step():
+    assert _trace_step_requests(32, (0.5, 0.75, 0.9, 0.95)) == {
+        16: [0.5],
+        24: [0.75],
+        29: [0.9],
+        30: [0.95],
+    }
+
+
+def test_trace_step_requests_validate_bounds():
+    with pytest.raises(ValueError, match="trace progress"):
+        _trace_step_requests(32, (1.2,))
