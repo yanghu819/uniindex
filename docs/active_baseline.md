@@ -51,6 +51,7 @@
 
 - Use `./run.sh prepare|stage1|stage2|eval --config ...`
 - Use `./run.sh diagnose-i2t-image-dependence --config ... --progress ...` to compare true-image, shuffled-image, and random-image-token controls before promoting another i2t training or sampler change.
+- Use `./run.sh diagnose-i2t-sampler-trajectory --config ... --progress ...` to test whether the free i2t sampling state still responds to true-image controls at intermediate sampler steps.
 - Use `./run.sh sweep-i2t-power` for the 2/4/6 short sweep over `image_to_text_text_time_power`
 - Use `./run.sh sweep-i2t-repeats` for the 4/6/8 short sweep over `stage2_image_to_text_repeats`
 - `run.sh` exports `PYTHONPATH=$ROOT/src`, so every worktree resolves the local code instead of an unrelated editable install
@@ -121,6 +122,21 @@
 - Interpretation: the active denoiser has real image signal at low and mid text times, but high-progress predictions are dominated by the text prior enough that shuffled/random controls nearly catch up. The free sampler's weak i2t result is therefore more likely a trajectory/time-conditioning alignment problem than a total lack of image-conditioned denoising.
 - Decision: keep the active baseline unchanged. The next sampler experiment should force the free trajectory to query the denoiser where the true-vs-control margin is largest, instead of only changing the final projection near `progress = 0.95`.
 
+## Active sampler-trajectory diagnostic
+
+- Run timestamp: `2026-04-22T05:15:13Z` (`2026-04-22 13:15:13 CST`)
+- Remote path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06/20260422T051513Z-diagnose-i2t-sampler-trajectory/i2t_sampler_trajectory.json`
+- Code state: remote detached checkout `95ee738`.
+- Config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Free sampler trajectory metrics:
+  - `progress = 0.50`: true label `0.33984375`, true exact `0.0703125`; true-minus-shuffled label margin `0.234375`
+  - `progress = 0.75`: true label `0.17578125`, true exact `0.0703125`; true-minus-shuffled label margin `0.05859375`
+  - `progress = 0.90`: true label `0.15625`, true exact `0.10546875`; true-minus-shuffled label margin `0.015625`
+  - sampler-step `progress = 0.95`: true label `0.14453125`, true exact `0.1171875`; true-minus-shuffled label margin `0.0078125`
+  - final model call at `progress = 0.95`: true exact `0.12109375`, shuffled exact `0.1171875`, random exact `0.125`; true/shuffled/random label all stay near `0.14453125` to `0.1484375`
+- Interpretation: direct denoiser diagnostics show high image-conditioned accuracy at clean-noised text states, but the free sampler's text state has already drifted by `progress = 0.75`. The remaining final decoder call is effectively image-insensitive. This rules out another final-model-progress-only sweep as a likely fix.
+- Decision: next sampler change should address state distribution drift, for example a midpoint reprojection/re-noising check or candidate-label projection around `progress = 0.5`, then resume the trajectory with the image condition.
+
 ## Recent low-t image-dependence check
 
 - Run timestamp: `2026-04-22T04:22:35Z` (`2026-04-22 12:22:35 CST`)
@@ -145,7 +161,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler/time-conditioning alignment beyond the final projection: force or sweep final denoiser queries through the `progress = 0.5` to `0.75` band where true-vs-control image dependence is largest, then only consider consistency loss if sampler-only changes cannot preserve that signal.
+Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler state distribution drift: try a midpoint text-state reprojection/re-noising or candidate-label projection around `progress = 0.5`, then continue the i2t sampler and evaluate whether the final prediction preserves the image-dependence margin.
 
 ## Archived local trees
 
