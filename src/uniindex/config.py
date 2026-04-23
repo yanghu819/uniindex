@@ -105,6 +105,7 @@ class SamplingConfig:
     candidate_score_num_noise: int = 4
     image_to_text_projection: str = "none"
     image_to_text_projection_progress: float = 0.5
+    image_to_text_projection_progresses: list[float] | None = None
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,7 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("candidate_score_num_noise", 4)
     normalized.setdefault("image_to_text_projection", "none")
     normalized.setdefault("image_to_text_projection_progress", 0.5)
+    normalized.setdefault("image_to_text_projection_progresses", None)
     projection = normalized["image_to_text_projection"]
     if projection not in {"none", "argmax_renoise", "candidate_renoise"}:
         raise ValueError(f"unsupported image_to_text_projection: {projection}")
@@ -219,6 +221,15 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     if not 0.0 <= projection_progress <= 1.0:
         raise ValueError(f"image_to_text_projection_progress must be in [0, 1], got {projection_progress}")
     normalized["image_to_text_projection_progress"] = projection_progress
+    projection_progresses = normalized["image_to_text_projection_progresses"]
+    if projection_progresses is not None:
+        projection_progresses = [float(progress) for progress in projection_progresses]
+        if not projection_progresses:
+            raise ValueError("image_to_text_projection_progresses must contain at least one value")
+        for progress in projection_progresses:
+            if not 0.0 <= progress <= 1.0:
+                raise ValueError(f"image_to_text_projection_progresses values must be in [0, 1], got {progress}")
+        normalized["image_to_text_projection_progresses"] = projection_progresses
     return normalized
 
 

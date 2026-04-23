@@ -2,7 +2,12 @@ import math
 
 import torch
 
-from uniindex.eval import _candidate_denoiser_score_text, _projection_step_index, _sample_unified_with_logits
+from uniindex.eval import (
+    _candidate_denoiser_score_text,
+    _projection_step_index,
+    _projection_step_indices,
+    _sample_unified_with_logits,
+)
 from uniindex.layout import TaskLayout
 from uniindex.state import build_flm_clean_state
 from uniindex.text import build_text_metadata
@@ -201,6 +206,10 @@ def test_projection_step_index_uses_nearest_sampler_step():
     assert _projection_step_index(32, 0.95) == 30
 
 
+def test_projection_step_indices_deduplicates_sampler_steps():
+    assert _projection_step_indices(32, [0.5, 0.51, 0.75]) == {16, 24}
+
+
 def test_candidate_projection_replaces_text_state_before_final_call():
     torch.manual_seed(0)
     metadata = build_text_metadata(
@@ -240,3 +249,64 @@ def test_candidate_projection_replaces_text_state_before_final_call():
 
     expected_text_state = build_flm_clean_state(preferred.expand(2, -1), layout.vocab_size)
     assert torch.equal(model.inputs[-1][:, layout.text_slice], expected_text_state)
+
+
+def test_candidate_projection_progresses_can_project_twice():
+    torch.manual_seed(0)
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    preferred = metadata.label_text_tokens[1] + layout.text_offset
+    expected_text_state = build_flm_clean_state(preferred.expand(2, -1), layout.vocab_size)
+
+    single_projection_model = CandidatePreferenceModel(layout, preferred_text_targets=preferred)
+    _sample_unified_with_logits(
+        model=single_projection_model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=2,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_renoise",
+        image_to_text_projection_progresses=[0.0],
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+
+    double_projection_model = CandidatePreferenceModel(layout, preferred_text_targets=preferred)
+    _sample_unified_with_logits(
+        model=double_projection_model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=2,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_renoise",
+        image_to_text_projection_progresses=[0.0, 0.5],
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+
+    assert not torch.equal(single_projection_model.inputs[-1][:, layout.text_slice], expected_text_state)
+    assert torch.equal(double_projection_model.inputs[-1][:, layout.text_slice], expected_text_state)

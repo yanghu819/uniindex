@@ -71,6 +71,12 @@ def _projection_step_index(steps: int, progress: float) -> int:
     return min(range(steps), key=lambda index: abs((index / steps) - float(progress)))
 
 
+def _projection_step_indices(steps: int, progresses: list[float]) -> set[int]:
+    if not progresses:
+        raise ValueError("projection progresses must contain at least one value")
+    return {_projection_step_index(steps, float(progress)) for progress in progresses}
+
+
 def _project_text_state(
     text_logits: torch.Tensor,
     *,
@@ -107,6 +113,7 @@ def _sample_unified_with_logits(
     final_model_progress: float = 1.0,
     image_to_text_projection: str = "none",
     image_to_text_projection_progress: float = 0.5,
+    image_to_text_projection_progresses: list[float] | None = None,
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -126,6 +133,16 @@ def _sample_unified_with_logits(
         raise ValueError(
             f"image_to_text_projection_progress must be in [0, 1], got {image_to_text_projection_progress}"
         )
+    projection_progresses = (
+        [float(progress) for progress in image_to_text_projection_progresses]
+        if image_to_text_projection_progresses is not None
+        else [float(image_to_text_projection_progress)]
+    )
+    if not projection_progresses:
+        raise ValueError("image_to_text_projection_progresses must contain at least one value")
+    for progress in projection_progresses:
+        if not 0.0 <= progress <= 1.0:
+            raise ValueError(f"image_to_text_projection_progresses values must be in [0, 1], got {progress}")
 
     device = next(model.parameters()).device
     batch = batch_size or 1
@@ -153,7 +170,7 @@ def _sample_unified_with_logits(
         and condition_image_tokens is not None
         and condition_text_tokens is None
     )
-    projection_step = _projection_step_index(steps, image_to_text_projection_progress) if should_project_i2t else None
+    projection_steps = _projection_step_indices(steps, projection_progresses) if should_project_i2t else set()
 
     last_logits = None
     for step in range(steps):
@@ -214,7 +231,7 @@ def _sample_unified_with_logits(
             z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
         if text_targets is not None:
             z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
-        elif should_project_i2t and step == projection_step:
+        elif should_project_i2t and step in projection_steps:
             projected_targets = _project_text_state(
                 logits[:, layout.text_slice],
                 layout=layout,
@@ -266,6 +283,7 @@ def sample_unified(
     final_model_progress: float = 1.0,
     image_to_text_projection: str = "none",
     image_to_text_projection_progress: float = 0.5,
+    image_to_text_projection_progresses: list[float] | None = None,
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -285,6 +303,7 @@ def sample_unified(
         final_model_progress=final_model_progress,
         image_to_text_projection=image_to_text_projection,
         image_to_text_projection_progress=image_to_text_projection_progress,
+        image_to_text_projection_progresses=image_to_text_projection_progresses,
         text_metadata=text_metadata,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
@@ -473,6 +492,7 @@ def evaluate(
                 final_model_progress=config.sampling.final_model_progress,
                 image_to_text_projection=config.sampling.image_to_text_projection,
                 image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+                image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
                 text_metadata=text_metadata,
                 condition_image_tokens=image_tokens,
                 condition_text_tokens=None,
@@ -523,6 +543,7 @@ def evaluate(
             final_model_progress=config.sampling.final_model_progress,
             image_to_text_projection=config.sampling.image_to_text_projection,
             image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+            image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
             text_metadata=text_metadata,
             condition_image_tokens=None,
             condition_text_tokens=text_tokens,
@@ -548,6 +569,7 @@ def evaluate(
         final_model_progress=config.sampling.final_model_progress,
         image_to_text_projection=config.sampling.image_to_text_projection,
         image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+        image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
         text_metadata=text_metadata,
         batch_size=uncond_count,
         condition_image_tokens=None,
@@ -576,6 +598,7 @@ def evaluate(
         "final_model_progress": config.sampling.final_model_progress,
         "image_to_text_projection": config.sampling.image_to_text_projection,
         "image_to_text_projection_progress": config.sampling.image_to_text_projection_progress,
+        "image_to_text_projection_progresses": config.sampling.image_to_text_projection_progresses,
         "candidate_score_progress": _candidate_score_progress_values(config.sampling.candidate_score_progress)
         if image_to_text_decoder == "candidate_denoiser_score"
         else None,
