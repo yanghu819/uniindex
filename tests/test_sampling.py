@@ -4,6 +4,7 @@ import torch
 
 from uniindex.eval import (
     _candidate_denoiser_score_text,
+    _EvalSamplingRngStreams,
     _eval_sampling_rng,
     _projection_step_index,
     _projection_step_indices,
@@ -225,12 +226,28 @@ def test_eval_sampling_rng_restores_outer_rng_and_splits_branches():
     assert torch.equal(before, expected_before)
     assert torch.equal(after, expected_after)
 
-    with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="image_to_text", batch_index=0):
-        repeated_image_to_text_draw = torch.rand(4)
     with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="text_to_image", batch_index=0):
         text_to_image_draw = torch.rand(4)
-    assert torch.equal(image_to_text_draw, repeated_image_to_text_draw)
+    with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="text_to_image", batch_index=0):
+        repeated_text_to_image_draw = torch.rand(4)
+    assert torch.equal(text_to_image_draw, repeated_text_to_image_draw)
     assert not torch.equal(image_to_text_draw, text_to_image_draw)
+
+
+def test_eval_sampling_rng_streams_continue_per_branch():
+    device = torch.device("cpu")
+    streams = _EvalSamplingRngStreams(enabled=True, base_seed=42, device=device)
+
+    with streams.branch("text_to_image"):
+        first_draw = torch.rand(2)
+    with streams.branch("text_to_image"):
+        second_draw = torch.rand(2)
+
+    torch.manual_seed(42 + 20_000)
+    expected_first = torch.rand(2)
+    expected_second = torch.rand(2)
+    assert torch.equal(first_draw, expected_first)
+    assert torch.equal(second_draw, expected_second)
 
 
 def test_candidate_projection_replaces_text_state_before_final_call():
