@@ -178,10 +178,23 @@
   - `[0.5, 0.7]`: exact `0.23828125`, label `0.2578125`, token `0.43725335438042623`, t2i `0.9609375`, uncond `0.828125`
   - `[0.5, 0.75]`: exact `0.23828125`, label `0.24609375`, token `0.4325177584846093`, t2i `0.9609375`, uncond `0.828125`
   - `[0.5, 0.8]`: exact `0.22265625`, label `0.23046875`, token `0.4230465666929755`, t2i `0.9609375`, uncond `0.828125`
-- Decision: do not promote under the strict guard yet. `[0.5, 0.7]` is the best i2t candidate and strongly supports the sampler-state-drift diagnosis, but `text_to_image_accuracy = 0.9609375` misses the existing guard threshold by one 256-sample bin.
-- Interpretation: second projection is the first sampler-only change that clears the i2t exact target by a wide margin. Because projection is only applied when `condition_image_tokens` is set and `condition_text_tokens` is absent, the t2i drop is likely an eval RNG-coupling artifact from extra i2t re-noise calls changing the later t2i random stream, not a direct t2i sampler change. Verify with an RNG-isolated guard before promotion.
-- Lesson: the next fast iteration should focus around `[0.5, 0.7]`, either with an RNG-isolated eval guard or a narrow second-projection sweep near `0.65` to `0.75`. Do not spend more runs on lower gamma unless this path regresses.
+- Decision: do not promote. The unisolated sweep made `[0.5, 0.7]` look strong, but the later RNG-isolated guard shows this was not a stable sampler improvement.
+- Interpretation: second projection exposed a real measurement problem. In the unisolated eval loop, i2t and t2i sampling share one RNG stream; adding an extra i2t re-noise changes the RNG state seen by later batches and can create apparent i2t gains. Use RNG-isolated evals before promoting sampler changes that alter random draw counts.
+- Lesson: midpoint projection remains useful, but repeating the same projection at `0.7` is not currently justified. Do not spend more runs on lower gamma or second-projection promotion unless a new candidate-selection rule changes the failure mode.
 - Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
+## Recent RNG-isolated guard
+
+- Code timestamp: `2026-04-23T10:41:00Z` (`2026-04-23 18:41:00 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/rng_guard/20260423T103656Z-rng-guard-continuous/summary.json`
+- Code state: remote detached checkout `84f7598`.
+- Guard config: generated from `configs/flm_joint_work_fullvocab_tsw075.yaml` with `eval.isolate_sampling_rng = true` and continuous per-branch RNG streams. The i2t stream is kept continuous, while t2i and unconditional sampling use independent streams so i2t projection changes cannot advance their random state.
+- Results:
+  - active `[0.5]`: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`
+  - candidate `[0.5, 0.7]`: exact `0.15625`, label `0.17578125`, token `0.3820047355958958`, t2i `0.95703125`, uncond `0.859375`
+  - candidate-minus-active: exact `-0.015625`, label `-0.01953125`, token `-0.01578531965272295`, t2i `0.0`, uncond `0.0`
+- Decision: keep active `[0.5]`. Under the fair guard, `[0.5, 0.7]` is worse on i2t and has no t2i/unconditional difference.
+- Lesson: future sampler sweeps should enable `eval.isolate_sampling_rng` when comparing algorithms that consume different numbers of random draws. Otherwise, apparent wins can come from RNG-stream coupling rather than the algorithm itself.
 
 ## Active image-dependence diagnostic
 
@@ -237,7 +250,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, or lower-gamma sampling without a new reason. The next low-cost check should validate `[0.5, 0.7]` second projection with an RNG-isolated t2i/unconditional guard, then run a narrow second-projection sweep around `0.65` to `0.75` if the guard passes. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma sampling, or plain second projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and change the projection selection rule, such as candidate-score reranking at the midpoint or a confidence-gated second projection that only fires when the midpoint candidate is uncertain. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
