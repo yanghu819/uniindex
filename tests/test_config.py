@@ -21,6 +21,8 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_decoder == "sample"
     assert config.sampling.candidate_score_progress is None
     assert config.sampling.candidate_score_num_noise == 4
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.image_to_text_projection_progress == 0.5
 
 
 def test_load_understanding_config():
@@ -77,6 +79,14 @@ def test_load_fullvocab_tsw075_config():
     assert config.sampling.image_to_text_decoder == "sample"
     assert config.paths.artifacts_dir.name == "fullvocab_short_shared"
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06"
+
+
+def test_load_candidate_projection_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_candidate_proj_p050.yaml")
+    assert config.sampling.image_to_text_projection == "candidate_renoise"
+    assert config.sampling.image_to_text_projection_progress == 0.5
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_candidate_proj_p050"
 
 
 def test_load_i2t_power_short_configs():

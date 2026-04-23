@@ -103,6 +103,8 @@ class SamplingConfig:
     image_to_text_decoder: str = "sample"
     candidate_score_progress: list[float] | None = None
     candidate_score_num_noise: int = 4
+    image_to_text_projection: str = "none"
+    image_to_text_projection_progress: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -208,6 +210,15 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_decoder", "sample")
     normalized.setdefault("candidate_score_progress", None)
     normalized.setdefault("candidate_score_num_noise", 4)
+    normalized.setdefault("image_to_text_projection", "none")
+    normalized.setdefault("image_to_text_projection_progress", 0.5)
+    projection = normalized["image_to_text_projection"]
+    if projection not in {"none", "argmax_renoise", "candidate_renoise"}:
+        raise ValueError(f"unsupported image_to_text_projection: {projection}")
+    projection_progress = float(normalized["image_to_text_projection_progress"])
+    if not 0.0 <= projection_progress <= 1.0:
+        raise ValueError(f"image_to_text_projection_progress must be in [0, 1], got {projection_progress}")
+    normalized["image_to_text_projection_progress"] = projection_progress
     return normalized
 
 

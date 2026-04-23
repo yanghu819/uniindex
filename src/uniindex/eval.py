@@ -63,6 +63,35 @@ def _decode_image_tokens(tokenizer, image_tokens: torch.Tensor, tokenizer_state:
     return tokenizer.decode_token_batch(restored, grid_shape).to(device)
 
 
+def _projection_step_index(steps: int, progress: float) -> int:
+    if steps < 1:
+        raise ValueError(f"sampling steps must be >= 1, got {steps}")
+    if not 0.0 <= float(progress) <= 1.0:
+        raise ValueError(f"projection progress must be in [0, 1], got {progress}")
+    return min(range(steps), key=lambda index: abs((index / steps) - float(progress)))
+
+
+def _project_text_state(
+    text_logits: torch.Tensor,
+    *,
+    layout: TaskLayout,
+    projection: str,
+    text_metadata,
+) -> torch.Tensor:
+    if projection == "argmax_renoise":
+        return text_logits.argmax(dim=-1)
+    if projection == "candidate_renoise":
+        if text_metadata is None:
+            raise ValueError("candidate_renoise projection requires text_metadata")
+        candidate_targets = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size).to(
+            text_logits.device
+        )
+        scores = sequence_candidate_scores(text_logits, candidate_targets)
+        selected = scores.argmax(dim=1)
+        return candidate_targets.index_select(0, selected)
+    raise ValueError(f"unsupported image_to_text_projection: {projection}")
+
+
 @torch.inference_mode()
 def _sample_unified_with_logits(
     model: UnifiedDenoiser,
@@ -76,6 +105,9 @@ def _sample_unified_with_logits(
     integrator: str = "legacy_progress_euler",
     final_decode: str = "final_model_call",
     final_model_progress: float = 1.0,
+    image_to_text_projection: str = "none",
+    image_to_text_projection_progress: float = 0.5,
+    text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
@@ -88,6 +120,12 @@ def _sample_unified_with_logits(
         raise ValueError(f"unsupported sampling final_decode: {final_decode}")
     if not 0.0 <= final_model_progress <= 1.0:
         raise ValueError(f"final_model_progress must be in [0, 1], got {final_model_progress}")
+    if image_to_text_projection not in {"none", "argmax_renoise", "candidate_renoise"}:
+        raise ValueError(f"unsupported image_to_text_projection: {image_to_text_projection}")
+    if not 0.0 <= image_to_text_projection_progress <= 1.0:
+        raise ValueError(
+            f"image_to_text_projection_progress must be in [0, 1], got {image_to_text_projection_progress}"
+        )
 
     device = next(model.parameters()).device
     batch = batch_size or 1
@@ -110,6 +148,12 @@ def _sample_unified_with_logits(
     effective_text_time_power = text_time_power
     if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
         effective_text_time_power = image_to_text_text_time_power
+    should_project_i2t = (
+        image_to_text_projection != "none"
+        and condition_image_tokens is not None
+        and condition_text_tokens is None
+    )
+    projection_step = _projection_step_index(steps, image_to_text_projection_progress) if should_project_i2t else None
 
     last_logits = None
     for step in range(steps):
@@ -145,6 +189,20 @@ def _sample_unified_with_logits(
             dt_pos = next_t_pos - t_pos
         else:
             dt_pos = torch.full_like(t_pos, 1.0 / steps)
+            next_progress = torch.full((batch,), (step + 1) / steps, device=device)
+            next_t_pos = apply_schedule(
+                progress=next_progress,
+                modality_ids=modality_ids,
+                schedule_tables=schedule_tables,
+                image_time_power=image_time_power,
+                text_time_power=effective_text_time_power,
+            )
+            next_t_pos = condition_clean_timesteps(
+                next_t_pos,
+                layout.image_seq_len,
+                condition_image=condition_image_tokens is not None,
+                condition_text=condition_text_tokens is not None,
+            )
 
         logits = model(z_t, t_pos, modality_ids)
         logits = mask_logits(logits, layout=layout)
@@ -156,6 +214,19 @@ def _sample_unified_with_logits(
             z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
         if text_targets is not None:
             z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
+        elif should_project_i2t and step == projection_step:
+            projected_targets = _project_text_state(
+                logits[:, layout.text_slice],
+                layout=layout,
+                projection=image_to_text_projection,
+                text_metadata=text_metadata,
+            )
+            projected_clean = build_flm_clean_state(projected_targets, layout.vocab_size)
+            z_t[:, layout.text_slice] = mix_flm_noise(
+                projected_clean,
+                next_t_pos[:, layout.text_slice],
+                valid_token_mask[layout.text_slice],
+            )
 
     if final_decode == "final_model_call":
         final_t_pos = apply_schedule(
@@ -193,6 +264,9 @@ def sample_unified(
     integrator: str = "legacy_progress_euler",
     final_decode: str = "final_model_call",
     final_model_progress: float = 1.0,
+    image_to_text_projection: str = "none",
+    image_to_text_projection_progress: float = 0.5,
+    text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
     condition_text_tokens: torch.Tensor | None = None,
@@ -209,6 +283,9 @@ def sample_unified(
         integrator=integrator,
         final_decode=final_decode,
         final_model_progress=final_model_progress,
+        image_to_text_projection=image_to_text_projection,
+        image_to_text_projection_progress=image_to_text_projection_progress,
+        text_metadata=text_metadata,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
         condition_text_tokens=condition_text_tokens,
@@ -394,6 +471,9 @@ def evaluate(
                 integrator=config.sampling.integrator,
                 final_decode=config.sampling.final_decode,
                 final_model_progress=config.sampling.final_model_progress,
+                image_to_text_projection=config.sampling.image_to_text_projection,
+                image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+                text_metadata=text_metadata,
                 condition_image_tokens=image_tokens,
                 condition_text_tokens=None,
             )
@@ -441,6 +521,9 @@ def evaluate(
             integrator=config.sampling.integrator,
             final_decode=config.sampling.final_decode,
             final_model_progress=config.sampling.final_model_progress,
+            image_to_text_projection=config.sampling.image_to_text_projection,
+            image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+            text_metadata=text_metadata,
             condition_image_tokens=None,
             condition_text_tokens=text_tokens,
         )[:, layout.image_slice]
@@ -463,6 +546,9 @@ def evaluate(
         integrator=config.sampling.integrator,
         final_decode=config.sampling.final_decode,
         final_model_progress=config.sampling.final_model_progress,
+        image_to_text_projection=config.sampling.image_to_text_projection,
+        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+        text_metadata=text_metadata,
         batch_size=uncond_count,
         condition_image_tokens=None,
         condition_text_tokens=None,
@@ -488,6 +574,8 @@ def evaluate(
     diagnostics = {
         "image_to_text_decoder": image_to_text_decoder,
         "final_model_progress": config.sampling.final_model_progress,
+        "image_to_text_projection": config.sampling.image_to_text_projection,
+        "image_to_text_projection_progress": config.sampling.image_to_text_projection_progress,
         "candidate_score_progress": _candidate_score_progress_values(config.sampling.candidate_score_progress)
         if image_to_text_decoder == "candidate_denoiser_score"
         else None,

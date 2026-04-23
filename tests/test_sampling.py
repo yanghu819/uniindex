@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from uniindex.eval import _candidate_denoiser_score_text, _sample_unified_with_logits
+from uniindex.eval import _candidate_denoiser_score_text, _projection_step_index, _sample_unified_with_logits
 from uniindex.layout import TaskLayout
 from uniindex.state import build_flm_clean_state
 from uniindex.text import build_text_metadata
@@ -34,9 +34,11 @@ class CandidatePreferenceModel(torch.nn.Module):
         self.anchor = torch.nn.Parameter(torch.zeros(()))
         self.layout = layout
         self.register_buffer("preferred_text_targets", preferred_text_targets.long())
+        self.inputs: list[torch.Tensor] = []
 
     def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
         del t, modality_ids
+        self.inputs.append(z_t.detach().clone())
         logits = torch.full(
             (z_t.shape[0], self.layout.seq_len, self.layout.vocab_size),
             -10.0,
@@ -192,3 +194,49 @@ def test_candidate_denoiser_score_selects_best_candidate_without_labels():
     assert scores.shape == (2, 2)
     assert selected_indices.tolist() == [1, 1]
     assert torch.equal(selected_text, metadata.label_text_tokens[[1, 1]])
+
+
+def test_projection_step_index_uses_nearest_sampler_step():
+    assert _projection_step_index(32, 0.5) == 16
+    assert _projection_step_index(32, 0.95) == 30
+
+
+def test_candidate_projection_replaces_text_state_before_final_call():
+    torch.manual_seed(0)
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    preferred = metadata.label_text_tokens[1] + layout.text_offset
+    model = CandidatePreferenceModel(layout, preferred_text_targets=preferred)
+
+    _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_renoise",
+        image_to_text_projection_progress=0.0,
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+
+    expected_text_state = build_flm_clean_state(preferred.expand(2, -1), layout.vocab_size)
+    assert torch.equal(model.inputs[-1][:, layout.text_slice], expected_text_state)

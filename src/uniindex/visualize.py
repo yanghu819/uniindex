@@ -94,6 +94,9 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         integrator=config.sampling.integrator,
         final_decode=config.sampling.final_decode,
         final_model_progress=config.sampling.final_model_progress,
+        image_to_text_projection=config.sampling.image_to_text_projection,
+        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+        text_metadata=text_metadata,
         condition_image_tokens=image_tokens,
         condition_text_tokens=None,
     )
