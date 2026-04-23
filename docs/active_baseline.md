@@ -146,6 +146,25 @@
 - Decision: keep `candidate_renoise @ 0.5` as the active default. The `0.4` and `0.6` candidate projections improve token accuracy in one direction or another but lose exact/label accuracy. `argmax_renoise @ 0.5` is close on label accuracy but lower on exact/token, so the gain is mostly from canonical label projection rather than re-noising alone.
 - Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
 
+## Recent gamma sweep
+
+- Run timestamp: `2026-04-23T06:50:19Z` (`2026-04-23 14:50:19 CST`)
+- Local record timestamp: `2026-04-23T07:14:00Z` (`2026-04-23 15:14:00 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/gamma_sweep/20260423T065018Z-gamma-sweep/summary.json`
+- Code state: remote detached checkout `6d5d483`.
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Fixed sampler settings: `sampling.steps = 32`, `sampling.temperature = 0.7`, `sampling.integrator = legacy_progress_euler`, `sampling.final_model_progress = 0.95`, `sampling.image_to_text_projection = candidate_renoise`, `sampling.image_to_text_projection_progress = 0.5`.
+- Interpretation note: `t_pos` is the clean weight used by `mix_flm_noise = (1 - t) * noise + t * x1`. Because i2t text time uses `progress^power`, higher `sampling.image_to_text_text_time_power` means lower text gamma and a noisier text state.
+- Results:
+  - `power = 3.0`: exact `0.16796875`, label `0.1875`, token `0.38910812943962114`, t2i `0.97265625`, uncond `0.8125`
+  - `power = 4.0`: exact `0.16796875`, label `0.19140625`, token `0.3820047355958958`, t2i `0.97265625`, uncond `0.8125`
+  - `power = 5.0`: exact `0.15234375`, label `0.1796875`, token `0.3804262036306235`, t2i `0.97265625`, uncond `0.8125`
+  - `power = 6.0`: exact `0.140625`, label `0.1796875`, token `0.36621941594317287`, t2i `0.97265625`, uncond `0.8125`
+  - `power = 8.0`: exact `0.109375`, label `0.1640625`, token `0.34964483030781374`, t2i `0.97265625`, uncond `0.8125`
+- Decision: do not promote a new gamma. Keep `sampling.image_to_text_text_time_power = 4.0`. Lower-gamma settings (`5.0`, `6.0`, `8.0`) monotonically hurt exact/token accuracy and do not improve constrained label accuracy. Higher-gamma `3.0` only improves token accuracy while lowering constrained label accuracy, so the active bottleneck is not simply that text gamma is too high.
+- Lesson: after midpoint `candidate_renoise`, the next useful sampler change should change how the projection is selected or repeated, not make the subsequent text trajectory noisier.
+- Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
 ## Active image-dependence diagnostic
 
 - Run timestamp: `2026-04-22T05:10:29Z` (`2026-04-22 13:10:29 CST`)
@@ -200,7 +219,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should either pin/vendor the Emu3.5 tokenizer remote code for reliable offline runs, or run a narrower sampler-only check around canonical projection quality, such as candidate projection with a second projection point or candidate-score reranking after the midpoint reset.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, or lower-gamma sampling without a new reason. The next low-cost check should either pin/vendor the Emu3.5 tokenizer remote code for reliable offline runs, or run a narrower sampler-only check around canonical projection quality, such as candidate projection with a second projection point or candidate-score reranking after the midpoint reset.
 
 ## Archived local trees
 
