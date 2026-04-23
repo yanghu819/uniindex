@@ -97,6 +97,9 @@ class SamplingConfig:
     image_time_power: float = 1.0
     text_time_power: float = 1.0
     image_to_text_text_time_power: float | None = None
+    image_to_text_text_time_schedule: str = "power"
+    image_to_text_logit_normal_loc: float = 0.0
+    image_to_text_logit_normal_scale: float = 1.0
     integrator: str = "legacy_progress_euler"
     final_decode: str = "final_model_call"
     final_model_progress: float = 1.0
@@ -209,6 +212,9 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_sampling)
     normalized.setdefault("integrator", "legacy_progress_euler")
     normalized.setdefault("final_decode", "final_model_call")
+    normalized.setdefault("image_to_text_text_time_schedule", "power")
+    normalized.setdefault("image_to_text_logit_normal_loc", 0.0)
+    normalized.setdefault("image_to_text_logit_normal_scale", 1.0)
     normalized.setdefault("final_model_progress", 1.0)
     normalized.setdefault("image_to_text_decoder", "sample")
     normalized.setdefault("candidate_score_progress", None)
@@ -216,6 +222,14 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_projection", "none")
     normalized.setdefault("image_to_text_projection_progress", 0.5)
     normalized.setdefault("image_to_text_projection_progresses", None)
+    text_time_schedule = normalized["image_to_text_text_time_schedule"]
+    if text_time_schedule not in {"power", "logit_normal"}:
+        raise ValueError(f"unsupported image_to_text_text_time_schedule: {text_time_schedule}")
+    normalized["image_to_text_logit_normal_loc"] = float(normalized["image_to_text_logit_normal_loc"])
+    logit_normal_scale = float(normalized["image_to_text_logit_normal_scale"])
+    if logit_normal_scale <= 0.0:
+        raise ValueError(f"image_to_text_logit_normal_scale must be > 0, got {logit_normal_scale}")
+    normalized["image_to_text_logit_normal_scale"] = logit_normal_scale
     projection = normalized["image_to_text_projection"]
     if projection not in {"none", "argmax_renoise", "candidate_renoise"}:
         raise ValueError(f"unsupported image_to_text_projection: {projection}")

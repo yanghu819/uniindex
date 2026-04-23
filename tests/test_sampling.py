@@ -6,6 +6,7 @@ from uniindex.eval import (
     _candidate_denoiser_score_text,
     _EvalSamplingRngStreams,
     _eval_sampling_rng,
+    _logit_normal_gamma_from_progress,
     _projection_step_index,
     _projection_step_indices,
     _sample_unified_with_logits,
@@ -248,6 +249,38 @@ def test_eval_sampling_rng_streams_continue_per_branch():
     expected_second = torch.rand(2)
     assert torch.equal(first_draw, expected_first)
     assert torch.equal(second_draw, expected_second)
+
+
+def test_logit_normal_gamma_from_progress_controls_midpoint():
+    progress = torch.tensor([0.0, 0.5, 1.0])
+    gamma = _logit_normal_gamma_from_progress(progress, loc=-2.0, scale=1.0)
+    assert torch.equal(gamma[[0, 2]], torch.tensor([0.0, 1.0]))
+    assert torch.allclose(gamma[1], torch.sigmoid(torch.tensor(-2.0)))
+
+
+def test_logit_normal_i2t_schedule_sets_text_time_directly():
+    layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=2)
+    model = StaticEndpointModel()
+    _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=4.0,
+        image_to_text_text_time_schedule="logit_normal",
+        image_to_text_logit_normal_loc=-2.0,
+        image_to_text_logit_normal_scale=1.0,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=0.5,
+        condition_image_tokens=torch.tensor([[1]]),
+    )
+
+    expected_text_gamma = torch.sigmoid(torch.tensor(-2.0))
+    assert torch.allclose(model.times[-1][:, layout.text_slice], expected_text_gamma.reshape(1, 1))
 
 
 def test_candidate_projection_replaces_text_state_before_final_call():

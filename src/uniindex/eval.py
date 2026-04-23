@@ -34,6 +34,7 @@ _EVAL_RNG_BRANCH_OFFSETS = {
     "text_to_image": 20_000,
     "unconditional": 30_000,
 }
+_SQRT_2 = 2.0**0.5
 
 
 def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
@@ -150,6 +151,44 @@ def _projection_step_indices(steps: int, progresses: list[float]) -> set[int]:
     return {_projection_step_index(steps, float(progress)) for progress in progresses}
 
 
+def _logit_normal_gamma_from_progress(
+    progress: torch.Tensor,
+    *,
+    loc: float,
+    scale: float,
+) -> torch.Tensor:
+    if scale <= 0.0:
+        raise ValueError(f"logit-normal scale must be > 0, got {scale}")
+    clipped = progress.clamp(1e-6, 1.0 - 1e-6)
+    normal_quantile = _SQRT_2 * torch.erfinv(2.0 * clipped - 1.0)
+    gamma = torch.sigmoid(float(loc) + float(scale) * normal_quantile)
+    gamma = torch.where(progress <= 0.0, torch.zeros_like(gamma), gamma)
+    return torch.where(progress >= 1.0, torch.ones_like(gamma), gamma)
+
+
+def _apply_i2t_text_time_schedule(
+    t_pos: torch.Tensor,
+    progress: torch.Tensor,
+    *,
+    layout: TaskLayout,
+    schedule: str,
+    logit_normal_loc: float,
+    logit_normal_scale: float,
+) -> torch.Tensor:
+    if schedule == "power":
+        return t_pos
+    if schedule == "logit_normal":
+        updated = t_pos.clone()
+        gamma = _logit_normal_gamma_from_progress(
+            progress,
+            loc=logit_normal_loc,
+            scale=logit_normal_scale,
+        )
+        updated[:, layout.text_slice] = gamma[:, None]
+        return updated
+    raise ValueError(f"unsupported image_to_text_text_time_schedule: {schedule}")
+
+
 def _project_text_state(
     text_logits: torch.Tensor,
     *,
@@ -181,6 +220,9 @@ def _sample_unified_with_logits(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
+    image_to_text_text_time_schedule: str = "power",
+    image_to_text_logit_normal_loc: float = 0.0,
+    image_to_text_logit_normal_scale: float = 1.0,
     integrator: str = "legacy_progress_euler",
     final_decode: str = "final_model_call",
     final_model_progress: float = 1.0,
@@ -202,6 +244,10 @@ def _sample_unified_with_logits(
         raise ValueError(f"final_model_progress must be in [0, 1], got {final_model_progress}")
     if image_to_text_projection not in {"none", "argmax_renoise", "candidate_renoise"}:
         raise ValueError(f"unsupported image_to_text_projection: {image_to_text_projection}")
+    if image_to_text_text_time_schedule not in {"power", "logit_normal"}:
+        raise ValueError(f"unsupported image_to_text_text_time_schedule: {image_to_text_text_time_schedule}")
+    if image_to_text_logit_normal_scale <= 0.0:
+        raise ValueError(f"image_to_text_logit_normal_scale must be > 0, got {image_to_text_logit_normal_scale}")
     if not 0.0 <= image_to_text_projection_progress <= 1.0:
         raise ValueError(
             f"image_to_text_projection_progress must be in [0, 1], got {image_to_text_projection_progress}"
@@ -238,10 +284,10 @@ def _sample_unified_with_logits(
     effective_text_time_power = text_time_power
     if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
         effective_text_time_power = image_to_text_text_time_power
+    is_i2t = condition_image_tokens is not None and condition_text_tokens is None
     should_project_i2t = (
         image_to_text_projection != "none"
-        and condition_image_tokens is not None
-        and condition_text_tokens is None
+        and is_i2t
     )
     projection_steps = _projection_step_indices(steps, projection_progresses) if should_project_i2t else set()
 
@@ -255,6 +301,15 @@ def _sample_unified_with_logits(
             image_time_power=image_time_power,
             text_time_power=effective_text_time_power,
         )
+        if is_i2t:
+            t_pos = _apply_i2t_text_time_schedule(
+                t_pos,
+                progress,
+                layout=layout,
+                schedule=image_to_text_text_time_schedule,
+                logit_normal_loc=image_to_text_logit_normal_loc,
+                logit_normal_scale=image_to_text_logit_normal_scale,
+            )
         t_pos = condition_clean_timesteps(
             t_pos,
             layout.image_seq_len,
@@ -270,6 +325,15 @@ def _sample_unified_with_logits(
                 image_time_power=image_time_power,
                 text_time_power=effective_text_time_power,
             )
+            if is_i2t:
+                next_t_pos = _apply_i2t_text_time_schedule(
+                    next_t_pos,
+                    next_progress,
+                    layout=layout,
+                    schedule=image_to_text_text_time_schedule,
+                    logit_normal_loc=image_to_text_logit_normal_loc,
+                    logit_normal_scale=image_to_text_logit_normal_scale,
+                )
             next_t_pos = condition_clean_timesteps(
                 next_t_pos,
                 layout.image_seq_len,
@@ -287,6 +351,15 @@ def _sample_unified_with_logits(
                 image_time_power=image_time_power,
                 text_time_power=effective_text_time_power,
             )
+            if is_i2t:
+                next_t_pos = _apply_i2t_text_time_schedule(
+                    next_t_pos,
+                    next_progress,
+                    layout=layout,
+                    schedule=image_to_text_text_time_schedule,
+                    logit_normal_loc=image_to_text_logit_normal_loc,
+                    logit_normal_scale=image_to_text_logit_normal_scale,
+                )
             next_t_pos = condition_clean_timesteps(
                 next_t_pos,
                 layout.image_seq_len,
@@ -326,6 +399,16 @@ def _sample_unified_with_logits(
             image_time_power=image_time_power,
             text_time_power=effective_text_time_power,
         )
+        if is_i2t:
+            final_progress = torch.full((batch,), float(final_model_progress), device=device)
+            final_t_pos = _apply_i2t_text_time_schedule(
+                final_t_pos,
+                final_progress,
+                layout=layout,
+                schedule=image_to_text_text_time_schedule,
+                logit_normal_loc=image_to_text_logit_normal_loc,
+                logit_normal_scale=image_to_text_logit_normal_scale,
+            )
         final_t_pos = condition_clean_timesteps(
             final_t_pos,
             layout.image_seq_len,
@@ -351,6 +434,9 @@ def sample_unified(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
+    image_to_text_text_time_schedule: str = "power",
+    image_to_text_logit_normal_loc: float = 0.0,
+    image_to_text_logit_normal_scale: float = 1.0,
     integrator: str = "legacy_progress_euler",
     final_decode: str = "final_model_call",
     final_model_progress: float = 1.0,
@@ -371,6 +457,9 @@ def sample_unified(
         image_time_power=image_time_power,
         text_time_power=text_time_power,
         image_to_text_text_time_power=image_to_text_text_time_power,
+        image_to_text_text_time_schedule=image_to_text_text_time_schedule,
+        image_to_text_logit_normal_loc=image_to_text_logit_normal_loc,
+        image_to_text_logit_normal_scale=image_to_text_logit_normal_scale,
         integrator=integrator,
         final_decode=final_decode,
         final_model_progress=final_model_progress,
@@ -568,6 +657,9 @@ def evaluate(
                     image_time_power=config.sampling.image_time_power,
                     text_time_power=config.sampling.text_time_power,
                     image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                    image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
+                    image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
+                    image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
                     integrator=config.sampling.integrator,
                     final_decode=config.sampling.final_decode,
                     final_model_progress=config.sampling.final_model_progress,
@@ -620,6 +712,9 @@ def evaluate(
                 image_time_power=config.sampling.image_time_power,
                 text_time_power=config.sampling.text_time_power,
                 image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
+                image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
+                image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
                 integrator=config.sampling.integrator,
                 final_decode=config.sampling.final_decode,
                 final_model_progress=config.sampling.final_model_progress,
@@ -647,6 +742,9 @@ def evaluate(
             image_time_power=config.sampling.image_time_power,
             text_time_power=config.sampling.text_time_power,
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+            image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
+            image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
+            image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
             integrator=config.sampling.integrator,
             final_decode=config.sampling.final_decode,
             final_model_progress=config.sampling.final_model_progress,
@@ -679,6 +777,9 @@ def evaluate(
     diagnostics = {
         "image_to_text_decoder": image_to_text_decoder,
         "final_model_progress": config.sampling.final_model_progress,
+        "image_to_text_text_time_schedule": config.sampling.image_to_text_text_time_schedule,
+        "image_to_text_logit_normal_loc": config.sampling.image_to_text_logit_normal_loc,
+        "image_to_text_logit_normal_scale": config.sampling.image_to_text_logit_normal_scale,
         "image_to_text_projection": config.sampling.image_to_text_projection,
         "image_to_text_projection_progress": config.sampling.image_to_text_projection_progress,
         "image_to_text_projection_progresses": config.sampling.image_to_text_projection_progresses,
