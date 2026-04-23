@@ -109,6 +109,8 @@ class SamplingConfig:
     image_to_text_projection: str = "none"
     image_to_text_projection_progress: float = 0.5
     image_to_text_projection_progresses: list[float] | None = None
+    image_to_text_candidate_score_progress: list[float] | None = None
+    image_to_text_candidate_score_num_noise: int = 1
 
 
 @dataclass(frozen=True)
@@ -222,6 +224,8 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_projection", "none")
     normalized.setdefault("image_to_text_projection_progress", 0.5)
     normalized.setdefault("image_to_text_projection_progresses", None)
+    normalized.setdefault("image_to_text_candidate_score_progress", None)
+    normalized.setdefault("image_to_text_candidate_score_num_noise", 1)
     text_time_schedule = normalized["image_to_text_text_time_schedule"]
     if text_time_schedule not in {"power", "logit_normal"}:
         raise ValueError(f"unsupported image_to_text_text_time_schedule: {text_time_schedule}")
@@ -230,8 +234,21 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     if logit_normal_scale <= 0.0:
         raise ValueError(f"image_to_text_logit_normal_scale must be > 0, got {logit_normal_scale}")
     normalized["image_to_text_logit_normal_scale"] = logit_normal_scale
+    candidate_score_num_noise = int(normalized["candidate_score_num_noise"])
+    if candidate_score_num_noise < 1:
+        raise ValueError(f"candidate_score_num_noise must be >= 1, got {candidate_score_num_noise}")
+    normalized["candidate_score_num_noise"] = candidate_score_num_noise
+    candidate_score_progress = normalized["candidate_score_progress"]
+    if candidate_score_progress is not None:
+        candidate_score_progress = [float(progress) for progress in candidate_score_progress]
+        if not candidate_score_progress:
+            raise ValueError("candidate_score_progress must contain at least one value")
+        for progress in candidate_score_progress:
+            if not 0.0 <= progress <= 1.0:
+                raise ValueError(f"candidate_score_progress values must be in [0, 1], got {progress}")
+        normalized["candidate_score_progress"] = candidate_score_progress
     projection = normalized["image_to_text_projection"]
-    if projection not in {"none", "argmax_renoise", "candidate_renoise"}:
+    if projection not in {"none", "argmax_renoise", "candidate_renoise", "candidate_score_renoise"}:
         raise ValueError(f"unsupported image_to_text_projection: {projection}")
     projection_progress = float(normalized["image_to_text_projection_progress"])
     if not 0.0 <= projection_progress <= 1.0:
@@ -246,6 +263,26 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
             if not 0.0 <= progress <= 1.0:
                 raise ValueError(f"image_to_text_projection_progresses values must be in [0, 1], got {progress}")
         normalized["image_to_text_projection_progresses"] = projection_progresses
+    image_to_text_candidate_score_progress = normalized["image_to_text_candidate_score_progress"]
+    if image_to_text_candidate_score_progress is not None:
+        image_to_text_candidate_score_progress = [
+            float(progress) for progress in image_to_text_candidate_score_progress
+        ]
+        if not image_to_text_candidate_score_progress:
+            raise ValueError("image_to_text_candidate_score_progress must contain at least one value")
+        for progress in image_to_text_candidate_score_progress:
+            if not 0.0 <= progress <= 1.0:
+                raise ValueError(
+                    f"image_to_text_candidate_score_progress values must be in [0, 1], got {progress}"
+                )
+        normalized["image_to_text_candidate_score_progress"] = image_to_text_candidate_score_progress
+    image_to_text_candidate_score_num_noise = int(normalized["image_to_text_candidate_score_num_noise"])
+    if image_to_text_candidate_score_num_noise < 1:
+        raise ValueError(
+            "image_to_text_candidate_score_num_noise must be >= 1, "
+            f"got {image_to_text_candidate_score_num_noise}"
+        )
+    normalized["image_to_text_candidate_score_num_noise"] = image_to_text_candidate_score_num_noise
     return normalized
 
 

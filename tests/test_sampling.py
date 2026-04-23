@@ -58,6 +58,32 @@ class CandidatePreferenceModel(torch.nn.Module):
         return logits
 
 
+class CandidateScoreProjectionModel(torch.nn.Module):
+    def __init__(self, layout: TaskLayout, sampler_text_targets: torch.Tensor, score_text_targets: torch.Tensor) -> None:
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+        self.layout = layout
+        self.register_buffer("sampler_text_targets", sampler_text_targets.long())
+        self.register_buffer("score_text_targets", score_text_targets.long())
+        self.inputs: list[torch.Tensor] = []
+
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        del modality_ids
+        self.inputs.append(z_t.detach().clone())
+        logits = torch.full(
+            (z_t.shape[0], self.layout.seq_len, self.layout.vocab_size),
+            -10.0,
+            device=z_t.device,
+        )
+        logits[:, self.layout.image_slice, 0] = 10.0
+        score_context = t[:, self.layout.text_slice].amin(dim=1) >= 0.99
+        for row in range(z_t.shape[0]):
+            targets = self.score_text_targets if bool(score_context[row]) else self.sampler_text_targets
+            for offset, token_id in enumerate(targets.tolist()):
+                logits[row, self.layout.image_seq_len + offset, token_id] = 10.0
+        return logits
+
+
 def test_scheduled_euler_uses_physical_schedule_delta():
     torch.manual_seed(0)
     layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=2)
@@ -383,3 +409,51 @@ def test_candidate_projection_progresses_can_project_twice():
 
     assert not torch.equal(single_projection_model.inputs[-1][:, layout.text_slice], expected_text_state)
     assert torch.equal(double_projection_model.inputs[-1][:, layout.text_slice], expected_text_state)
+
+
+def test_candidate_score_projection_uses_denoiser_score_before_renoise():
+    torch.manual_seed(0)
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    sampler_preferred = metadata.label_text_tokens[0] + layout.text_offset
+    score_preferred = metadata.label_text_tokens[1] + layout.text_offset
+    model = CandidateScoreProjectionModel(
+        layout,
+        sampler_text_targets=sampler_preferred,
+        score_text_targets=score_preferred,
+    )
+
+    _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_score_renoise",
+        image_to_text_projection_progress=0.0,
+        image_to_text_candidate_score_progress=[1.0],
+        image_to_text_candidate_score_num_noise=1,
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+
+    expected_text_state = build_flm_clean_state(score_preferred.expand(2, -1), layout.vocab_size)
+    assert torch.equal(model.inputs[-1][:, layout.text_slice], expected_text_state)

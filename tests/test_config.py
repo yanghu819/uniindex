@@ -28,6 +28,8 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_projection == "none"
     assert config.sampling.image_to_text_projection_progress == 0.5
     assert config.sampling.image_to_text_projection_progresses is None
+    assert config.sampling.image_to_text_candidate_score_progress is None
+    assert config.sampling.image_to_text_candidate_score_num_noise == 1
     assert config.sampling.image_to_text_text_time_schedule == "power"
     assert config.sampling.image_to_text_logit_normal_loc == 0.0
     assert config.sampling.image_to_text_logit_normal_scale == 1.0
@@ -107,6 +109,8 @@ def test_load_projection_progresses_config(tmp_path):
     raw = yaml.safe_load(Path("configs/smoke.yaml").read_text(encoding="utf-8"))
     raw["sampling"]["image_to_text_projection"] = "candidate_renoise"
     raw["sampling"]["image_to_text_projection_progresses"] = [0.5, "0.75"]
+    raw["sampling"]["image_to_text_candidate_score_progress"] = ["0.5", 0.75]
+    raw["sampling"]["image_to_text_candidate_score_num_noise"] = "2"
     raw["sampling"]["image_to_text_text_time_schedule"] = "logit_normal"
     raw["sampling"]["image_to_text_logit_normal_loc"] = "-2.5"
     raw["sampling"]["image_to_text_logit_normal_scale"] = 1.5
@@ -121,6 +125,8 @@ def test_load_projection_progresses_config(tmp_path):
 
     assert config.sampling.image_to_text_projection_progress == 0.5
     assert config.sampling.image_to_text_projection_progresses == [0.5, 0.75]
+    assert config.sampling.image_to_text_candidate_score_progress == [0.5, 0.75]
+    assert config.sampling.image_to_text_candidate_score_num_noise == 2
     assert config.sampling.image_to_text_text_time_schedule == "logit_normal"
     assert config.sampling.image_to_text_logit_normal_loc == -2.5
     assert config.sampling.image_to_text_logit_normal_scale == 1.5

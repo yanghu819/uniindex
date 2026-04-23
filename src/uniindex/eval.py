@@ -195,6 +195,17 @@ def _project_text_state(
     layout: TaskLayout,
     projection: str,
     text_metadata,
+    model: UnifiedDenoiser | None = None,
+    schedule_tables: dict | None = None,
+    image_tokens: torch.Tensor | None = None,
+    image_time_power: float = 1.0,
+    text_time_power: float = 1.0,
+    image_to_text_text_time_power: float | None = None,
+    image_to_text_text_time_schedule: str = "power",
+    image_to_text_logit_normal_loc: float = 0.0,
+    image_to_text_logit_normal_scale: float = 1.0,
+    candidate_score_progress: list[float] | None = None,
+    candidate_score_num_noise: int = 1,
 ) -> torch.Tensor:
     if projection == "argmax_renoise":
         return text_logits.argmax(dim=-1)
@@ -207,6 +218,28 @@ def _project_text_state(
         scores = sequence_candidate_scores(text_logits, candidate_targets)
         selected = scores.argmax(dim=1)
         return candidate_targets.index_select(0, selected)
+    if projection == "candidate_score_renoise":
+        if text_metadata is None:
+            raise ValueError("candidate_score_renoise projection requires text_metadata")
+        if model is None or schedule_tables is None or image_tokens is None:
+            raise ValueError("candidate_score_renoise projection requires model, schedule_tables, and image_tokens")
+        selected_text, _, _ = _candidate_denoiser_score_text(
+            model=model,
+            layout=layout,
+            schedule_tables=schedule_tables,
+            image_tokens=image_tokens,
+            text_metadata=text_metadata,
+            image_time_power=image_time_power,
+            text_time_power=text_time_power,
+            image_to_text_text_time_power=image_to_text_text_time_power,
+            image_to_text_text_time_schedule=image_to_text_text_time_schedule,
+            image_to_text_logit_normal_loc=image_to_text_logit_normal_loc,
+            image_to_text_logit_normal_scale=image_to_text_logit_normal_scale,
+            progress_values=candidate_score_progress,
+            default_progress_values=[0.5],
+            num_noise=candidate_score_num_noise,
+        )
+        return selected_text + layout.text_offset
     raise ValueError(f"unsupported image_to_text_projection: {projection}")
 
 
@@ -229,6 +262,8 @@ def _sample_unified_with_logits(
     image_to_text_projection: str = "none",
     image_to_text_projection_progress: float = 0.5,
     image_to_text_projection_progresses: list[float] | None = None,
+    image_to_text_candidate_score_progress: list[float] | None = None,
+    image_to_text_candidate_score_num_noise: int = 1,
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -242,7 +277,7 @@ def _sample_unified_with_logits(
         raise ValueError(f"unsupported sampling final_decode: {final_decode}")
     if not 0.0 <= final_model_progress <= 1.0:
         raise ValueError(f"final_model_progress must be in [0, 1], got {final_model_progress}")
-    if image_to_text_projection not in {"none", "argmax_renoise", "candidate_renoise"}:
+    if image_to_text_projection not in {"none", "argmax_renoise", "candidate_renoise", "candidate_score_renoise"}:
         raise ValueError(f"unsupported image_to_text_projection: {image_to_text_projection}")
     if image_to_text_text_time_schedule not in {"power", "logit_normal"}:
         raise ValueError(f"unsupported image_to_text_text_time_schedule: {image_to_text_text_time_schedule}")
@@ -262,6 +297,17 @@ def _sample_unified_with_logits(
     for progress in projection_progresses:
         if not 0.0 <= progress <= 1.0:
             raise ValueError(f"image_to_text_projection_progresses values must be in [0, 1], got {progress}")
+    if image_to_text_candidate_score_num_noise < 1:
+        raise ValueError(
+            "image_to_text_candidate_score_num_noise must be >= 1, "
+            f"got {image_to_text_candidate_score_num_noise}"
+        )
+    if image_to_text_candidate_score_progress is not None:
+        for progress in image_to_text_candidate_score_progress:
+            if not 0.0 <= float(progress) <= 1.0:
+                raise ValueError(
+                    f"image_to_text_candidate_score_progress values must be in [0, 1], got {progress}"
+                )
 
     device = next(model.parameters()).device
     batch = batch_size or 1
@@ -383,6 +429,17 @@ def _sample_unified_with_logits(
                 layout=layout,
                 projection=image_to_text_projection,
                 text_metadata=text_metadata,
+                model=model,
+                schedule_tables=schedule_tables,
+                image_tokens=condition_image_tokens.to(device) if condition_image_tokens is not None else None,
+                image_time_power=image_time_power,
+                text_time_power=text_time_power,
+                image_to_text_text_time_power=image_to_text_text_time_power,
+                image_to_text_text_time_schedule=image_to_text_text_time_schedule,
+                image_to_text_logit_normal_loc=image_to_text_logit_normal_loc,
+                image_to_text_logit_normal_scale=image_to_text_logit_normal_scale,
+                candidate_score_progress=image_to_text_candidate_score_progress,
+                candidate_score_num_noise=image_to_text_candidate_score_num_noise,
             )
             projected_clean = build_flm_clean_state(projected_targets, layout.vocab_size)
             z_t[:, layout.text_slice] = mix_flm_noise(
@@ -443,6 +500,8 @@ def sample_unified(
     image_to_text_projection: str = "none",
     image_to_text_projection_progress: float = 0.5,
     image_to_text_projection_progresses: list[float] | None = None,
+    image_to_text_candidate_score_progress: list[float] | None = None,
+    image_to_text_candidate_score_num_noise: int = 1,
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -466,6 +525,8 @@ def sample_unified(
         image_to_text_projection=image_to_text_projection,
         image_to_text_projection_progress=image_to_text_projection_progress,
         image_to_text_projection_progresses=image_to_text_projection_progresses,
+        image_to_text_candidate_score_progress=image_to_text_candidate_score_progress,
+        image_to_text_candidate_score_num_noise=image_to_text_candidate_score_num_noise,
         text_metadata=text_metadata,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
@@ -487,8 +548,13 @@ def constrained_text_label_values(
     return label_values.index_select(0, indices)
 
 
-def _candidate_score_progress_values(progress_values: list[float] | None) -> list[float]:
-    values = [0.5, 0.75, 0.9, 0.95] if progress_values is None else list(progress_values)
+def _candidate_score_progress_values(
+    progress_values: list[float] | None,
+    *,
+    default_progress_values: list[float] | None = None,
+) -> list[float]:
+    default = [0.5, 0.75, 0.9, 0.95] if default_progress_values is None else default_progress_values
+    values = default if progress_values is None else list(progress_values)
     if not values:
         raise ValueError("candidate_score_progress must contain at least one value")
     for value in values:
@@ -508,7 +574,11 @@ def _candidate_denoiser_score_text(
     image_time_power: float,
     text_time_power: float,
     image_to_text_text_time_power: float | None,
+    image_to_text_text_time_schedule: str = "power",
+    image_to_text_logit_normal_loc: float = 0.0,
+    image_to_text_logit_normal_scale: float = 1.0,
     progress_values: list[float] | None,
+    default_progress_values: list[float] | None = None,
     num_noise: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if num_noise < 1:
@@ -537,7 +607,10 @@ def _candidate_denoiser_score_text(
     flat_candidate_targets = candidate_targets[None, :, :].expand(batch, num_candidates, layout.text_seq_len)
     flat_candidate_targets = flat_candidate_targets.reshape(flat_batch, layout.text_seq_len)
     flat_candidate_indices = torch.arange(num_candidates, device=device).repeat(batch)
-    progress_schedule = _candidate_score_progress_values(progress_values)
+    progress_schedule = _candidate_score_progress_values(
+        progress_values,
+        default_progress_values=default_progress_values,
+    )
 
     scores = torch.zeros(batch, num_candidates, device=device)
     flat_scores = scores.reshape(-1)
@@ -549,6 +622,14 @@ def _candidate_denoiser_score_text(
             schedule_tables=schedule_tables,
             image_time_power=image_time_power,
             text_time_power=effective_text_time_power,
+        )
+        t_pos = _apply_i2t_text_time_schedule(
+            t_pos,
+            progress,
+            layout=layout,
+            schedule=image_to_text_text_time_schedule,
+            logit_normal_loc=image_to_text_logit_normal_loc,
+            logit_normal_scale=image_to_text_logit_normal_scale,
         )
         t_pos = condition_clean_timesteps(
             t_pos,
@@ -666,6 +747,8 @@ def evaluate(
                     image_to_text_projection=config.sampling.image_to_text_projection,
                     image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
                     image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
+                    image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
+                    image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
                     text_metadata=text_metadata,
                     condition_image_tokens=image_tokens,
                     condition_text_tokens=None,
@@ -686,6 +769,9 @@ def evaluate(
                     image_time_power=config.sampling.image_time_power,
                     text_time_power=config.sampling.text_time_power,
                     image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                    image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
+                    image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
+                    image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
                     progress_values=config.sampling.candidate_score_progress,
                     num_noise=config.sampling.candidate_score_num_noise,
                 )
@@ -721,6 +807,8 @@ def evaluate(
                 image_to_text_projection=config.sampling.image_to_text_projection,
                 image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
                 image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
+                image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
+                image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
                 text_metadata=text_metadata,
                 condition_image_tokens=None,
                 condition_text_tokens=text_tokens,
@@ -751,6 +839,8 @@ def evaluate(
             image_to_text_projection=config.sampling.image_to_text_projection,
             image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
             image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
+            image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
+            image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
             text_metadata=text_metadata,
             batch_size=uncond_count,
             condition_image_tokens=None,
@@ -783,6 +873,15 @@ def evaluate(
         "image_to_text_projection": config.sampling.image_to_text_projection,
         "image_to_text_projection_progress": config.sampling.image_to_text_projection_progress,
         "image_to_text_projection_progresses": config.sampling.image_to_text_projection_progresses,
+        "image_to_text_candidate_score_progress": _candidate_score_progress_values(
+            config.sampling.image_to_text_candidate_score_progress,
+            default_progress_values=[0.5],
+        )
+        if config.sampling.image_to_text_projection == "candidate_score_renoise"
+        else None,
+        "image_to_text_candidate_score_num_noise": config.sampling.image_to_text_candidate_score_num_noise
+        if config.sampling.image_to_text_projection == "candidate_score_renoise"
+        else None,
         "isolate_sampling_rng": isolate_sampling_rng,
         "sampling_seed": eval_sampling_seed,
         "candidate_score_progress": _candidate_score_progress_values(config.sampling.candidate_score_progress)
