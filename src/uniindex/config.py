@@ -79,6 +79,7 @@ class TrainConfig:
     save_every: int
     joint_weight: float
     text_weight: float
+    stage2_init_checkpoint: str | None = None
     stage2_joint_repeats: int = 2
     stage2_text_to_image_repeats: int = 1
     stage2_image_to_text_repeats: int = 1
@@ -90,6 +91,8 @@ class TrainConfig:
     text_sequence_weight: float = 0.0
     image_to_text_mismatch_weight: float = 0.0
     image_to_text_mismatch_margin: float = 1.0
+    image_to_text_label_weight: float = 0.0
+    image_to_text_label_text_time: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -203,8 +206,11 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_train)
     normalized.setdefault("image_to_text_text_time_cap", None)
     normalized.setdefault("image_to_text_noise_only_prob", 0.0)
+    normalized.setdefault("stage2_init_checkpoint", None)
     normalized.setdefault("image_to_text_mismatch_weight", 0.0)
     normalized.setdefault("image_to_text_mismatch_margin", 1.0)
+    normalized.setdefault("image_to_text_label_weight", 0.0)
+    normalized.setdefault("image_to_text_label_text_time", 0.0)
     cap = normalized["image_to_text_text_time_cap"]
     if cap is not None and not 0.0 <= float(cap) <= 1.0:
         raise ValueError(f"image_to_text_text_time_cap must be in [0, 1], got {cap}")
@@ -220,6 +226,14 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     if mismatch_margin <= 0.0:
         raise ValueError(f"image_to_text_mismatch_margin must be > 0, got {mismatch_margin}")
     normalized["image_to_text_mismatch_margin"] = mismatch_margin
+    label_weight = float(normalized["image_to_text_label_weight"])
+    if label_weight < 0.0:
+        raise ValueError(f"image_to_text_label_weight must be >= 0, got {label_weight}")
+    normalized["image_to_text_label_weight"] = label_weight
+    label_text_time = float(normalized["image_to_text_label_text_time"])
+    if not 0.0 <= label_text_time <= 1.0:
+        raise ValueError(f"image_to_text_label_text_time must be in [0, 1], got {label_text_time}")
+    normalized["image_to_text_label_text_time"] = label_text_time
     return normalized
 
 

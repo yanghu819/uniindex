@@ -5,7 +5,13 @@ from uniindex.layout import TaskLayout, unified_targets
 from uniindex.state import build_flm_clean_state
 from uniindex.task_schedule import task_for_step
 from uniindex.text import build_text_metadata, shifted_label_text_tokens
-from uniindex.train import _apply_image_to_text_noise_policy, _image_text_mismatch_loss, _loss_for_task, _task_time_schedule
+from uniindex.train import (
+    _apply_image_to_text_noise_policy,
+    _image_text_mismatch_loss,
+    _image_to_text_label_loss,
+    _loss_for_task,
+    _task_time_schedule,
+)
 
 
 class ImageBoundTextModel(torch.nn.Module):
@@ -45,6 +51,27 @@ class SelfPromptTextModel(torch.nn.Module):
         text_indices = z_t[:, self.layout.text_slice].argmax(dim=-1)
         for row in range(z_t.shape[0]):
             for offset, token_id in enumerate(text_indices[row].tolist()):
+                logits[row, self.layout.image_seq_len + offset, token_id] = 10.0
+        return logits
+
+
+class FixedLabelTextModel(torch.nn.Module):
+    def __init__(self, layout: TaskLayout, label_text_tokens: torch.Tensor, label_index: int) -> None:
+        super().__init__()
+        self.layout = layout
+        self.label_index = label_index
+        self.register_buffer("label_text_tokens", label_text_tokens.long())
+
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        del t, modality_ids
+        logits = torch.full(
+            (z_t.shape[0], self.layout.seq_len, self.layout.vocab_size),
+            -10.0,
+            device=z_t.device,
+        )
+        logits[:, self.layout.image_slice, 0] = 10.0
+        for row in range(z_t.shape[0]):
+            for offset, token_id in enumerate(self.label_text_tokens[self.label_index].tolist()):
                 logits[row, self.layout.image_seq_len + offset, token_id] = 10.0
         return logits
 
@@ -206,6 +233,52 @@ def test_image_text_mismatch_loss_skips_same_label_pairs():
     assert loss.item() == 0.0
 
 
+def test_image_to_text_label_loss_rewards_image_bound_predictions():
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    image_tokens = torch.tensor([[0], [1]])
+    text_targets = metadata.label_text_tokens.clone()
+    targets = unified_targets(image_tokens, text_targets, layout.codebook_size)
+    x1 = build_flm_clean_state(targets, layout.vocab_size)
+    candidate_text_targets = shifted_label_text_tokens(metadata, token_offset=layout.codebook_size)
+
+    image_bound_loss = _image_to_text_label_loss(
+        model=ImageBoundTextModel(layout, candidate_text_targets),
+        x1=x1,
+        modality_ids=layout.position_modalities(),
+        layout=layout,
+        valid_token_mask=layout.position_valid_token_mask(),
+        text_targets=targets[:, layout.text_slice],
+        candidate_text_targets=candidate_text_targets,
+        text_time=0.0,
+    )
+    fixed_label_loss = _image_to_text_label_loss(
+        model=FixedLabelTextModel(layout, candidate_text_targets, label_index=0),
+        x1=x1,
+        modality_ids=layout.position_modalities(),
+        layout=layout,
+        valid_token_mask=layout.position_valid_token_mask(),
+        text_targets=targets[:, layout.text_slice],
+        candidate_text_targets=candidate_text_targets,
+        text_time=0.0,
+    )
+
+    assert image_bound_loss.item() < 1e-4
+    assert fixed_label_loss.item() > 1.0
+
+
 def test_loss_for_task_does_not_apply_mismatch_loss_to_joint_task():
     metadata = build_text_metadata(
         kind="char",
@@ -238,3 +311,4 @@ def test_loss_for_task_does_not_apply_mismatch_loss_to_joint_task():
     )
 
     assert parts["mismatch_loss"] == 0.0
+    assert parts["label_loss"] == 0.0

@@ -23,6 +23,16 @@ def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
     return path
 
 
+def _stage2_init_checkpoint_path(config: ProjectConfig) -> Path:
+    raw_path = config.train.stage2_init_checkpoint
+    if raw_path is None:
+        return latest_checkpoint_path(config, "stage1")
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return (config.repo_root / path).resolve()
+
+
 def _infinite(loader):
     while True:
         yield from loader
@@ -164,6 +174,38 @@ def _image_text_mismatch_loss(
     return losses[valid_mismatch.to(losses.device)].mean()
 
 
+def _image_to_text_label_loss(
+    *,
+    model: UnifiedDenoiser,
+    x1: torch.Tensor,
+    modality_ids: torch.Tensor,
+    layout: TaskLayout,
+    valid_token_mask: torch.Tensor,
+    text_targets: torch.Tensor,
+    candidate_text_targets: torch.Tensor,
+    text_time: float,
+) -> torch.Tensor:
+    t_pos = torch.full(
+        (x1.shape[0], layout.seq_len),
+        float(text_time),
+        device=x1.device,
+        dtype=x1.dtype,
+    )
+    t_pos = condition_clean_timesteps(
+        t_pos,
+        layout.image_seq_len,
+        condition_image=True,
+        condition_text=False,
+    )
+    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
+    label_logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
+    return _sequence_text_loss(
+        text_logits=label_logits[:, layout.text_slice],
+        text_targets=text_targets,
+        candidate_text_targets=candidate_text_targets.to(label_logits.device),
+    )
+
+
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -181,6 +223,8 @@ def _loss_for_task(
     valid_token_mask: torch.Tensor | None = None,
     image_to_text_mismatch_weight: float = 0.0,
     image_to_text_mismatch_margin: float = 1.0,
+    image_to_text_label_weight: float = 0.0,
+    image_to_text_label_text_time: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     masked = mask_logits(logits, layout=layout)
     img_logits = masked[:, layout.image_slice].reshape(-1, masked.shape[-1])
@@ -214,6 +258,20 @@ def _loss_for_task(
             candidate_text_targets=label_text_tokens.to(masked.device),
             margin=image_to_text_mismatch_margin,
         )
+    label_loss = torch.zeros((), device=masked.device)
+    if image_to_text_label_weight > 0.0 and task == "image_to_text":
+        if model is None or x1 is None or modality_ids is None or valid_token_mask is None:
+            raise ValueError("image_to_text label loss requires model, x1, modality_ids, and valid_token_mask")
+        label_loss = _image_to_text_label_loss(
+            model=model,
+            x1=x1,
+            modality_ids=modality_ids,
+            layout=layout,
+            valid_token_mask=valid_token_mask,
+            text_targets=text_targets,
+            candidate_text_targets=label_text_tokens.to(masked.device),
+            text_time=image_to_text_label_text_time,
+        )
 
     if task == "joint":
         loss = joint_weight * image_loss + text_weight * text_loss
@@ -225,12 +283,15 @@ def _loss_for_task(
         loss = loss + text_sequence_weight * sequence_loss
     if image_to_text_mismatch_weight > 0.0 and task == "image_to_text":
         loss = loss + image_to_text_mismatch_weight * mismatch_loss
+    if image_to_text_label_weight > 0.0 and task == "image_to_text":
+        loss = loss + image_to_text_label_weight * label_loss
 
     return loss, {
         "image_loss": float(image_loss.item()),
         "text_loss": float(text_loss.item()),
         "sequence_loss": float(sequence_loss.item()),
         "mismatch_loss": float(mismatch_loss.item()),
+        "label_loss": float(label_loss.item()),
     }
 
 
@@ -301,10 +362,10 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     ).to(device)
 
     if stage == "stage2":
-        stage1_path = latest_checkpoint_path(config, "stage1")
-        if not stage1_path.exists():
-            raise FileNotFoundError(f"missing stage1 checkpoint at {stage1_path}")
-        payload = torch.load(stage1_path, map_location=device)
+        init_path = _stage2_init_checkpoint_path(config)
+        if not init_path.exists():
+            raise FileNotFoundError(f"missing stage2 init checkpoint at {init_path}")
+        payload = torch.load(init_path, map_location=device)
         model.load_state_dict(payload["model"])
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
@@ -356,6 +417,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             valid_token_mask=valid_token_mask,
             image_to_text_mismatch_weight=config.train.image_to_text_mismatch_weight,
             image_to_text_mismatch_margin=config.train.image_to_text_mismatch_margin,
+            image_to_text_label_weight=config.train.image_to_text_label_weight,
+            image_to_text_label_text_time=config.train.image_to_text_label_text_time,
         )
 
         optimizer.zero_grad()

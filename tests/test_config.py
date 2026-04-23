@@ -14,8 +14,11 @@ def test_load_smoke_config():
     assert config.train.image_to_text_text_time_power is None
     assert config.train.image_to_text_text_time_cap is None
     assert config.train.image_to_text_noise_only_prob == 0.0
+    assert config.train.stage2_init_checkpoint is None
     assert config.train.image_to_text_mismatch_weight == 0.0
     assert config.train.image_to_text_mismatch_margin == 1.0
+    assert config.train.image_to_text_label_weight == 0.0
+    assert config.train.image_to_text_label_text_time == 0.0
     assert config.text.strings[0] == "zero"
     assert config.text.bos_token == "<bos>"
     assert config.text.eos_token == "<eos>"
@@ -120,6 +123,9 @@ def test_load_projection_progresses_config(tmp_path):
     raw["sampling"]["image_to_text_logit_normal_scale"] = 1.5
     raw["train"]["image_to_text_mismatch_weight"] = "0.125"
     raw["train"]["image_to_text_mismatch_margin"] = "1.5"
+    raw["train"]["stage2_init_checkpoint"] = "models/active/checkpoints/stage2_latest.pt"
+    raw["train"]["image_to_text_label_weight"] = "0.05"
+    raw["train"]["image_to_text_label_text_time"] = "0.25"
     raw["eval"]["isolate_sampling_rng"] = True
     raw["eval"]["sampling_seed"] = 12345
     config_dir = tmp_path / "configs"
@@ -139,6 +145,9 @@ def test_load_projection_progresses_config(tmp_path):
     assert config.sampling.image_to_text_logit_normal_scale == 1.5
     assert config.train.image_to_text_mismatch_weight == 0.125
     assert config.train.image_to_text_mismatch_margin == 1.5
+    assert config.train.stage2_init_checkpoint == "models/active/checkpoints/stage2_latest.pt"
+    assert config.train.image_to_text_label_weight == 0.05
+    assert config.train.image_to_text_label_text_time == 0.25
     assert config.eval.isolate_sampling_rng is True
     assert config.eval.sampling_seed == 12345
 
