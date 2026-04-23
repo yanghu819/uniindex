@@ -457,3 +457,79 @@ def test_candidate_score_projection_uses_denoiser_score_before_renoise():
 
     expected_text_state = build_flm_clean_state(score_preferred.expand(2, -1), layout.vocab_size)
     assert torch.equal(model.inputs[-1][:, layout.text_slice], expected_text_state)
+
+
+def test_candidate_score_blend_projection_keeps_sampler_score_primary():
+    torch.manual_seed(0)
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    sampler_preferred = metadata.label_text_tokens[0] + layout.text_offset
+    score_preferred = metadata.label_text_tokens[1] + layout.text_offset
+
+    sampler_only_model = CandidateScoreProjectionModel(
+        layout,
+        sampler_text_targets=sampler_preferred,
+        score_text_targets=score_preferred,
+    )
+    _sample_unified_with_logits(
+        model=sampler_only_model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_score_blend_renoise",
+        image_to_text_projection_progress=0.0,
+        image_to_text_candidate_score_progress=[1.0],
+        image_to_text_candidate_score_num_noise=1,
+        image_to_text_candidate_score_blend_weight=0.0,
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+    expected_sampler_state = build_flm_clean_state(sampler_preferred.expand(2, -1), layout.vocab_size)
+    assert torch.equal(sampler_only_model.inputs[-1][:, layout.text_slice], expected_sampler_state)
+
+    blended_model = CandidateScoreProjectionModel(
+        layout,
+        sampler_text_targets=sampler_preferred,
+        score_text_targets=score_preferred,
+    )
+    _sample_unified_with_logits(
+        model=blended_model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="final_model_call",
+        final_model_progress=1.0,
+        image_to_text_projection="candidate_score_blend_renoise",
+        image_to_text_projection_progress=0.0,
+        image_to_text_candidate_score_progress=[1.0],
+        image_to_text_candidate_score_num_noise=1,
+        image_to_text_candidate_score_blend_weight=2.0,
+        text_metadata=metadata,
+        condition_image_tokens=torch.tensor([[0], [1]]),
+    )
+    expected_score_state = build_flm_clean_state(score_preferred.expand(2, -1), layout.vocab_size)
+    assert torch.equal(blended_model.inputs[-1][:, layout.text_slice], expected_score_state)

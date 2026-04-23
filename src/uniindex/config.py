@@ -111,6 +111,7 @@ class SamplingConfig:
     image_to_text_projection_progresses: list[float] | None = None
     image_to_text_candidate_score_progress: list[float] | None = None
     image_to_text_candidate_score_num_noise: int = 1
+    image_to_text_candidate_score_blend_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -226,6 +227,7 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_projection_progresses", None)
     normalized.setdefault("image_to_text_candidate_score_progress", None)
     normalized.setdefault("image_to_text_candidate_score_num_noise", 1)
+    normalized.setdefault("image_to_text_candidate_score_blend_weight", 0.0)
     text_time_schedule = normalized["image_to_text_text_time_schedule"]
     if text_time_schedule not in {"power", "logit_normal"}:
         raise ValueError(f"unsupported image_to_text_text_time_schedule: {text_time_schedule}")
@@ -248,7 +250,13 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(f"candidate_score_progress values must be in [0, 1], got {progress}")
         normalized["candidate_score_progress"] = candidate_score_progress
     projection = normalized["image_to_text_projection"]
-    if projection not in {"none", "argmax_renoise", "candidate_renoise", "candidate_score_renoise"}:
+    if projection not in {
+        "none",
+        "argmax_renoise",
+        "candidate_renoise",
+        "candidate_score_renoise",
+        "candidate_score_blend_renoise",
+    }:
         raise ValueError(f"unsupported image_to_text_projection: {projection}")
     projection_progress = float(normalized["image_to_text_projection_progress"])
     if not 0.0 <= projection_progress <= 1.0:
@@ -283,6 +291,13 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
             f"got {image_to_text_candidate_score_num_noise}"
         )
     normalized["image_to_text_candidate_score_num_noise"] = image_to_text_candidate_score_num_noise
+    image_to_text_candidate_score_blend_weight = float(normalized["image_to_text_candidate_score_blend_weight"])
+    if image_to_text_candidate_score_blend_weight < 0.0:
+        raise ValueError(
+            "image_to_text_candidate_score_blend_weight must be >= 0, "
+            f"got {image_to_text_candidate_score_blend_weight}"
+        )
+    normalized["image_to_text_candidate_score_blend_weight"] = image_to_text_candidate_score_blend_weight
     return normalized
 
 
