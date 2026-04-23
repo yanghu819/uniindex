@@ -184,6 +184,23 @@
 - Lesson: do not keep sweeping pure denoiser-score projection progress or noise count. If candidate scoring is used again, use it only as a weak tie-breaker blended with the current sampler logits, not as a replacement for the current projection score.
 - Environment note: the eval logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars; pin or vendor/cache this before longer unattended runs.
 
+## Recent candidate-score blend mini sweep
+
+- Run timestamp: `2026-04-23T13:33:28Z` (`2026-04-23 21:33:28 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/candidate_score_blend/20260423T123842Z-candidate-score-blend-mini/summary.json`
+- Code state: remote detached checkout `c53f15a`.
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Guard: `eval.isolate_sampling_rng = true`, continuous per-branch RNG streams, `eval.sampling_seed = 420700`.
+- Active reference: prior RNG-isolated `candidate_renoise @ 0.5`, exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`.
+- Change under test: `sampling.image_to_text_projection = candidate_score_blend_renoise`, using current sampler candidate score plus `blend_weight * denoiser_candidate_score`.
+- Results:
+  - `blend_weight = 0.10`, score `[0.5]`: exact `0.15625`, label `0.171875`, token `0.38595106550907654`, t2i `0.95703125`, uncond `0.859375`
+  - `blend_weight = 0.25`, score `[0.5]`: exact `0.16015625`, label `0.17578125`, token `0.3867403314917127`, t2i `0.95703125`, uncond `0.859375`
+- Decision: do not promote candidate-score blend. Both weak blend cases lose exact match, constrained label accuracy, and token accuracy versus active. The small gain from `0.10` to `0.25` is not enough to justify a larger `0.50` probe.
+- Interpretation: even as a weak tie-breaker, the denoiser candidate score moves midpoint projection away from the free-text trajectory that the sampler can complete. Candidate-score information is not the missing ingredient for the current sampler failure.
+- Lesson: stop sampler-side candidate-score iterations for now. The next meaningful step should change training pressure toward image-text binding, such as a lightweight mismatched-image contrastive or consistency loss, while preserving the active sampler for evaluation.
+- Environment note: the eval logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
 ## Recent logit-normal gamma sweep
 
 - Run timestamp: `2026-04-23T10:57:17Z` (`2026-04-23 18:57:17 CST`)
@@ -290,7 +307,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, or pure candidate-score projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and preserve the current sampler-logit projection as the primary signal, for example a weak candidate-score blend or a confidence-gated projection that avoids overwriting coherent free text. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, or candidate-score blend without a new reason. The next experiment should stop changing only the sampler and instead add a small image-text binding objective, such as mismatched-image contrastive or consistency loss, then evaluate with the active `candidate_renoise @ 0.5` sampler. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
