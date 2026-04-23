@@ -323,9 +323,32 @@
 - Lesson: the binding objective should be scoped to `image_to_text` updates only. The next quick probe keeps the same mismatch loss idea but removes it from `joint` tasks so stage1 remains a clean joint denoising warmup.
 - Environment note: the initial eval spent several minutes in Hugging Face remote-code HEAD retries. Re-running eval with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` completed, but Transformers still emitted dynamic-module "downloaded" warnings from the cached Emu3.5 files. Pin or vendor the tokenizer code before long unattended runs.
 
+## Recent image-to-text-only mismatch probe
+
+- Run timestamp: `2026-04-23T14:25:46Z` (`2026-04-23 22:25:46 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/mismatch_binding/20260423T142546Z-mismatch-i2tonly-w010-short/summary.json`
+- Code state: remote detached checkout `26a7ae9`.
+- Base config: generated from `configs/flm_joint_work_fullvocab_short_i2tp40_tsw075.yaml`.
+- Change under test: same `train.image_to_text_mismatch_weight = 0.10`, but mismatch loss is applied only when `task == "image_to_text"`, not during `joint` warmup.
+- Eval metrics:
+  - `image_to_text_exact_match = 0.0`
+  - `image_to_text_token_accuracy = 0.3378058405682715`
+  - `image_to_text_label_accuracy_constrained = 0.08984375`
+  - `text_to_image_accuracy = 0.13671875`
+  - `unconditional_consistency = 0.0`
+- Short-run context: the old short i2tp40 baseline also had exact `0.0`, t2i `0.13671875`, and uncond `0.0`, so short free-sampling metrics alone are not a reliable promotion signal.
+- Direct image-dependence diagnostic:
+  - `progress = 0.50`: true label `0.140625`, shuffled label `0.14453125`, random label `0.125`
+  - `progress = 0.75`: true label `0.23828125`, shuffled label `0.2421875`, random label `0.234375`
+  - `progress = 0.90`: true label `0.30078125`, shuffled label `0.31640625`, random label `0.3203125`
+  - `progress = 0.95`: true label `0.3359375`, shuffled label `0.3359375`, random label `0.328125`
+- Decision: do not promote image-to-text-only mismatch binding at weight `0.10`. It avoids corrupting stage1 but still does not create a true-image advantage over shuffled/random controls.
+- Lesson: pairwise mismatched-image margin loss is not yet the right binding objective. It can alter token-position statistics, but it does not reliably make the denoiser prefer the true image. The next training-side attempt should use a more direct image-conditioned label objective or a fine-tune from the active long checkpoint, not another short from-scratch mismatch-weight sweep.
+- Environment note: running with offline env avoids repeated HF HEAD retries, but Transformers still emits dynamic-module "downloaded" warnings while loading cached Emu3.5 remote-code files.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, or joint-task mismatch loss without a new reason. The next experiment should test image-to-text-only mismatch binding, then evaluate with the active `candidate_renoise @ 0.5` sampler. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. The next experiment should either fine-tune from the active long checkpoint with a very small image-conditioned label objective, or first implement checkpoint resume/fine-tune support so training-side probes do not rely on weak short from-scratch runs. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
