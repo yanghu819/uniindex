@@ -122,6 +122,48 @@ def _sequence_text_loss(
     return F.cross_entropy(scores, target_indices)
 
 
+def _image_text_mismatch_loss(
+    *,
+    model: UnifiedDenoiser,
+    x1: torch.Tensor,
+    t_pos: torch.Tensor,
+    modality_ids: torch.Tensor,
+    layout: TaskLayout,
+    valid_token_mask: torch.Tensor,
+    text_targets: torch.Tensor,
+    candidate_text_targets: torch.Tensor,
+    margin: float,
+) -> torch.Tensor:
+    if x1.shape[0] < 2:
+        return torch.zeros((), device=x1.device)
+    shifted_x1 = x1.roll(shifts=1, dims=0)
+    mismatched = x1.clone()
+    mismatched[:, layout.image_slice] = shifted_x1[:, layout.image_slice]
+    z_t = _build_zt(mismatched, t_pos, layout, "image_to_text", valid_token_mask)
+    mismatch_logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
+    candidate_targets = candidate_text_targets.to(mismatch_logits.device)
+    scores = sequence_candidate_scores(mismatch_logits[:, layout.text_slice], candidate_targets)
+    matches = text_targets.unsqueeze(1).eq(candidate_text_targets.to(text_targets.device).unsqueeze(0)).all(dim=-1)
+    if not torch.all(matches.any(dim=1)):
+        raise ValueError("each text target row must exactly match one canonical text candidate")
+    shifted_text_targets = text_targets.roll(shifts=1, dims=0)
+    shifted_matches = shifted_text_targets.unsqueeze(1).eq(
+        candidate_text_targets.to(text_targets.device).unsqueeze(0)
+    ).all(dim=-1)
+    if not torch.all(shifted_matches.any(dim=1)):
+        raise ValueError("each shifted text target row must exactly match one canonical text candidate")
+    valid_mismatch = text_targets.ne(shifted_text_targets).any(dim=1)
+    if not torch.any(valid_mismatch):
+        return torch.zeros((), device=x1.device)
+
+    wrong_indices = matches.float().argmax(dim=1)
+    correct_indices = shifted_matches.float().argmax(dim=1)
+    wrong_score = scores.gather(dim=1, index=wrong_indices[:, None].to(scores.device)).squeeze(1)
+    correct_score = scores.gather(dim=1, index=correct_indices[:, None].to(scores.device)).squeeze(1)
+    losses = F.relu(float(margin) + wrong_score - correct_score)
+    return losses[valid_mismatch.to(losses.device)].mean()
+
+
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -132,6 +174,13 @@ def _loss_for_task(
     label_text_tokens: torch.Tensor,
     text_sequence_weight: float,
     task: str,
+    model: UnifiedDenoiser | None = None,
+    x1: torch.Tensor | None = None,
+    t_pos: torch.Tensor | None = None,
+    modality_ids: torch.Tensor | None = None,
+    valid_token_mask: torch.Tensor | None = None,
+    image_to_text_mismatch_weight: float = 0.0,
+    image_to_text_mismatch_margin: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     masked = mask_logits(logits, layout=layout)
     img_logits = masked[:, layout.image_slice].reshape(-1, masked.shape[-1])
@@ -150,6 +199,21 @@ def _loss_for_task(
             text_targets=text_targets,
             candidate_text_targets=label_text_tokens.to(masked.device),
         )
+    mismatch_loss = torch.zeros((), device=masked.device)
+    if image_to_text_mismatch_weight > 0.0 and task in {"joint", "image_to_text"}:
+        if model is None or x1 is None or t_pos is None or modality_ids is None or valid_token_mask is None:
+            raise ValueError("image_to_text mismatch loss requires model, x1, t_pos, modality_ids, and valid_token_mask")
+        mismatch_loss = _image_text_mismatch_loss(
+            model=model,
+            x1=x1,
+            t_pos=t_pos,
+            modality_ids=modality_ids,
+            layout=layout,
+            valid_token_mask=valid_token_mask,
+            text_targets=text_targets,
+            candidate_text_targets=label_text_tokens.to(masked.device),
+            margin=image_to_text_mismatch_margin,
+        )
 
     if task == "joint":
         loss = joint_weight * image_loss + text_weight * text_loss
@@ -159,11 +223,14 @@ def _loss_for_task(
         loss = text_loss
     if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
         loss = loss + text_sequence_weight * sequence_loss
+    if image_to_text_mismatch_weight > 0.0 and task in {"joint", "image_to_text"}:
+        loss = loss + image_to_text_mismatch_weight * mismatch_loss
 
     return loss, {
         "image_loss": float(image_loss.item()),
         "text_loss": float(text_loss.item()),
         "sequence_loss": float(sequence_loss.item()),
+        "mismatch_loss": float(mismatch_loss.item()),
     }
 
 
@@ -282,6 +349,13 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             label_text_tokens=shifted_label_tokens,
             text_sequence_weight=config.train.text_sequence_weight,
             task=task,
+            model=model,
+            x1=x1,
+            t_pos=t_pos,
+            modality_ids=modality_ids,
+            valid_token_mask=valid_token_mask,
+            image_to_text_mismatch_weight=config.train.image_to_text_mismatch_weight,
+            image_to_text_mismatch_margin=config.train.image_to_text_mismatch_margin,
         )
 
         optimizer.zero_grad()

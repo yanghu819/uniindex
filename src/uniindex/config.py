@@ -88,6 +88,8 @@ class TrainConfig:
     image_to_text_text_time_cap: float | None = None
     image_to_text_noise_only_prob: float = 0.0
     text_sequence_weight: float = 0.0
+    image_to_text_mismatch_weight: float = 0.0
+    image_to_text_mismatch_margin: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -201,6 +203,8 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_train)
     normalized.setdefault("image_to_text_text_time_cap", None)
     normalized.setdefault("image_to_text_noise_only_prob", 0.0)
+    normalized.setdefault("image_to_text_mismatch_weight", 0.0)
+    normalized.setdefault("image_to_text_mismatch_margin", 1.0)
     cap = normalized["image_to_text_text_time_cap"]
     if cap is not None and not 0.0 <= float(cap) <= 1.0:
         raise ValueError(f"image_to_text_text_time_cap must be in [0, 1], got {cap}")
@@ -208,6 +212,14 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     if not 0.0 <= noise_only_prob <= 1.0:
         raise ValueError(f"image_to_text_noise_only_prob must be in [0, 1], got {noise_only_prob}")
     normalized["image_to_text_noise_only_prob"] = noise_only_prob
+    mismatch_weight = float(normalized["image_to_text_mismatch_weight"])
+    if mismatch_weight < 0.0:
+        raise ValueError(f"image_to_text_mismatch_weight must be >= 0, got {mismatch_weight}")
+    normalized["image_to_text_mismatch_weight"] = mismatch_weight
+    mismatch_margin = float(normalized["image_to_text_mismatch_margin"])
+    if mismatch_margin <= 0.0:
+        raise ValueError(f"image_to_text_mismatch_margin must be > 0, got {mismatch_margin}")
+    normalized["image_to_text_mismatch_margin"] = mismatch_margin
     return normalized
 
 
