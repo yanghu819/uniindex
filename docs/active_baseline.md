@@ -133,6 +133,19 @@
 - Decision: promote `candidate_renoise` at `progress = 0.5` into `configs/flm_joint_work_fullvocab_tsw075.yaml`. It beats the prior active decoder result on i2t exact, token accuracy, constrained label accuracy, and text-to-image accuracy while preserving unconditional consistency.
 - Environment note: this eval again emitted Emu3.5 VisionTokenizer remote-code download messages despite offline env vars. Pinning or vendoring that tokenizer code remains necessary before a long unattended run.
 
+## Recent projection sweep
+
+- Run timestamp: `2026-04-23T04:19:39Z` (`2026-04-23 12:19:39 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/projection_sweep/20260423T041939Z-projection-sweep/summary.json`
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Results:
+  - `candidate_renoise @ 0.4`: exact `0.1640625`, label `0.1796875`, token `0.3851617995264404`, t2i `0.97265625`, uncond `0.8125`
+  - `candidate_renoise @ 0.5`: exact `0.16796875`, label `0.19140625`, token `0.3820047355958958`, t2i `0.97265625`, uncond `0.8125`
+  - `candidate_renoise @ 0.6`: exact `0.1640625`, label `0.1796875`, token `0.388318863456985`, t2i `0.97265625`, uncond `0.8125`
+  - `argmax_renoise @ 0.5`: exact `0.16015625`, label `0.1875`, token `0.3796369376479874`, t2i `0.97265625`, uncond `0.8125`
+- Decision: keep `candidate_renoise @ 0.5` as the active default. The `0.4` and `0.6` candidate projections improve token accuracy in one direction or another but lose exact/label accuracy. `argmax_renoise @ 0.5` is close on label accuracy but lower on exact/token, so the gain is mostly from canonical label projection rather than re-noising alone.
+- Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
 ## Active image-dependence diagnostic
 
 - Run timestamp: `2026-04-22T05:10:29Z` (`2026-04-22 13:10:29 CST`)
@@ -187,7 +200,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should stay within sampler-only projection: sweep candidate projection progress around `0.4`, `0.5`, and `0.6`, and optionally compare `argmax_renoise` to confirm whether the gain comes from canonical label projection or from re-noising alone.
+Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should either pin/vendor the Emu3.5 tokenizer remote code for reliable offline runs, or run a narrower sampler-only check around canonical projection quality, such as candidate projection with a second projection point or candidate-score reranking after the midpoint reset.
 
 ## Archived local trees
 
