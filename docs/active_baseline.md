@@ -346,9 +346,34 @@
 - Lesson: pairwise mismatched-image margin loss is not yet the right binding objective. It can alter token-position statistics, but it does not reliably make the denoiser prefer the true image. The next training-side attempt should use a more direct image-conditioned label objective or a fine-tune from the active long checkpoint, not another short from-scratch mismatch-weight sweep.
 - Environment note: running with offline env avoids repeated HF HEAD retries, but Transformers still emits dynamic-module "downloaded" warnings while loading cached Emu3.5 remote-code files.
 
+## Recent image-conditioned label fine-tune probe
+
+- Run timestamp: `2026-04-23T15:05:04Z` (`2026-04-23 23:05:04 CST`)
+- Retry completion timestamp: `2026-04-23T15:16:57Z` (`2026-04-23 23:16:57 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/label_ft/20260423T150710Z-label-ft-w005/summary.json`
+- Code state: remote detached checkout `1f31ba3`.
+- Base checkpoint: `models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt`.
+- Generated config: `configs_generated/flm_joint_work_fullvocab_tsw075_label_ft_w005.yaml`.
+- Change under test: stage2-only fine-tune for 300 steps from the active long checkpoint with `train.image_to_text_label_weight = 0.05`, `train.image_to_text_label_text_time = 0.0`, `lr = 0.0001`, active `candidate_renoise @ 0.5`, and RNG-isolated eval seed `420700`.
+- Eval metrics:
+  - `image_to_text_exact_match = 0.25390625`
+  - `image_to_text_token_accuracy = 0.4262036306235201`
+  - `image_to_text_label_accuracy_constrained = 0.26953125`
+  - `text_to_image_accuracy = 0.9296875`
+  - `unconditional_consistency = 0.796875`
+- Active reference for the same RNG guard: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`.
+- Direct image-dependence diagnostic:
+  - `progress = 0.50`: true label `0.4609375`, shuffled label `0.14453125`, random label `0.13671875`; true-minus-shuffled label margin `0.31640625`
+  - `progress = 0.75`: true exact `0.57421875`, shuffled exact `0.37109375`, random exact `0.3828125`; true-minus-shuffled exact margin `0.203125`
+  - `progress = 0.90`: true exact `0.94140625`, shuffled exact `0.90625`, random exact `0.91015625`; high-progress margins remain small
+  - `progress = 0.95`: true exact `0.98828125`, shuffled exact `0.97265625`, random exact `0.9765625`; high-progress text prior still dominates
+- Decision: do not replace the active full baseline with this checkpoint because t2i and unconditional fall below the active reference. Do promote the algorithmic direction: direct image-conditioned label supervision from the active checkpoint is the first training-side probe that materially improves free i2t exact, token accuracy, constrained label accuracy, and low/mid-progress true-image margins.
+- Lesson: the binding bottleneck is not solved by lower sampling gamma or pairwise mismatch margins. A small supervised label auxiliary can pull the i2t trajectory toward image evidence, but `weight = 0.05` for 300 steps is too much for preserving the shared generative manifold. The next quick run should sweep smaller label pressure from the same active checkpoint, for example `weight = 0.01` and `0.02`, before changing the objective again.
+- Environment note: the first eval failed because the new `models_dir` did not contain `eval/mnist_classifier.pt`; copying the active classifier fixed the retry. Generated fine-tune configs should either reuse the active classifier path or copy it into the new `models_dir/eval`. The run still emitted Emu3.5 remote-code "downloaded" warnings despite offline env vars.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. The next experiment should either fine-tune from the active long checkpoint with a very small image-conditioned label objective, or first implement checkpoint resume/fine-tune support so training-side probes do not rely on weak short from-scratch runs. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. Checkpoint resume/fine-tune support now exists, and the direct label auxiliary is promising but too strong at `weight = 0.05`. The next experiment should use the same active long checkpoint and sampler, sweep smaller `train.image_to_text_label_weight` values such as `0.01` and `0.02`, copy/reuse the active classifier for eval, and require t2i/unconditional preservation before promotion. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
