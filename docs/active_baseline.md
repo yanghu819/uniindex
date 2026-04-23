@@ -165,6 +165,27 @@
 - Lesson: after midpoint `candidate_renoise`, the next useful sampler change should change how the projection is selected or repeated, not make the subsequent text trajectory noisier.
 - Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
 
+## Recent logit-normal gamma sweep
+
+- Run timestamp: `2026-04-23T10:57:17Z` (`2026-04-23 18:57:17 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/logit_normal_gamma/20260423T105717Z-logit-normal-gamma/summary.json`
+- Code state: remote detached checkout `2bf6a43`.
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Guard: `eval.isolate_sampling_rng = true`, continuous per-branch RNG streams, `eval.sampling_seed = 420700`.
+- Fixed sampler settings: `sampling.steps = 32`, `sampling.temperature = 0.7`, `sampling.integrator = legacy_progress_euler`, `sampling.final_model_progress = 0.95`, `sampling.image_to_text_projection = candidate_renoise`, `sampling.image_to_text_projection_progresses = [0.5]`.
+- Change under test: `sampling.image_to_text_text_time_schedule = logit_normal`, which directly sets i2t text gamma to `sigmoid(loc + scale * normal_icdf(progress))` instead of routing it through `progress^power`.
+- Results:
+  - active `power`: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`
+  - `loc = -1.5, scale = 1.0`: exact `0.08203125`, label `0.24609375`, token `0.40173638516179955`, t2i `0.95703125`, uncond `0.859375`
+  - `loc = -2.0, scale = 1.0`: exact `0.04296875`, label `0.26171875`, token `0.40568271507498027`, t2i `0.95703125`, uncond `0.859375`
+  - `loc = -2.5, scale = 1.0`: exact `0.0390625`, label `0.32421875`, token `0.4238358326756117`, t2i `0.95703125`, uncond `0.859375`
+  - `loc = -3.0, scale = 1.0`: exact `0.0546875`, label `0.33984375`, token `0.43646408839779005`, t2i `0.95703125`, uncond `0.859375`
+  - `loc = -2.5, scale = 1.5`: exact `0.03515625`, label `0.23828125`, token `0.3898973954222573`, t2i `0.95703125`, uncond `0.859375`
+- Decision: do not promote logit-normal low-gamma sampling. No case beats active on exact match, and the best exact among logit-normal cases is less than half the active exact.
+- Interpretation: directly lowering i2t text gamma makes the model better at constrained label discrimination but worse at free text generation. This explains why label accuracy can rise while exact match collapses: the sampler is moving toward a classifier-like signal rather than a coherent text trajectory.
+- Lesson: do not spend more runs on plain lower-gamma schedules unless the objective is explicitly constrained label classification. For the actual free-text i2t target, the next sampler change should preserve text coherence and change candidate selection or reranking, not simply reduce gamma.
+- Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
 ## Recent second-projection sweep
 
 - Run timestamp: `2026-04-23T09:17:11Z` (`2026-04-23 17:17:11 CST`)
@@ -250,7 +271,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma sampling, or plain second projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and change the projection selection rule, such as candidate-score reranking at the midpoint or a confidence-gated second projection that only fires when the midpoint candidate is uncertain. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, or plain second projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and change the projection selection rule, such as candidate-score reranking at the midpoint or a confidence-gated projection that preserves free text coherence. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
