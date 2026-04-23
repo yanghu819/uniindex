@@ -4,6 +4,7 @@ import torch
 
 from uniindex.eval import (
     _candidate_denoiser_score_text,
+    _eval_sampling_rng,
     _projection_step_index,
     _projection_step_indices,
     _sample_unified_with_logits,
@@ -208,6 +209,28 @@ def test_projection_step_index_uses_nearest_sampler_step():
 
 def test_projection_step_indices_deduplicates_sampler_steps():
     assert _projection_step_indices(32, [0.5, 0.51, 0.75]) == {16, 24}
+
+
+def test_eval_sampling_rng_restores_outer_rng_and_splits_branches():
+    device = torch.device("cpu")
+    torch.manual_seed(123)
+    before = torch.rand(3)
+    with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="image_to_text", batch_index=0):
+        image_to_text_draw = torch.rand(4)
+    after = torch.rand(3)
+
+    torch.manual_seed(123)
+    expected_before = torch.rand(3)
+    expected_after = torch.rand(3)
+    assert torch.equal(before, expected_before)
+    assert torch.equal(after, expected_after)
+
+    with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="image_to_text", batch_index=0):
+        repeated_image_to_text_draw = torch.rand(4)
+    with _eval_sampling_rng(enabled=True, base_seed=42, device=device, branch="text_to_image", batch_index=0):
+        text_to_image_draw = torch.rand(4)
+    assert torch.equal(image_to_text_draw, repeated_image_to_text_draw)
+    assert not torch.equal(image_to_text_draw, text_to_image_draw)
 
 
 def test_candidate_projection_replaces_text_state_before_final_call():

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Iterator
 
 import torch
 from tqdm import tqdm
@@ -28,6 +30,11 @@ from .train import latest_checkpoint_path
 
 
 _CANDIDATE_SCORE_CHUNK_SIZE = 32
+_EVAL_RNG_BRANCH_OFFSETS = {
+    "image_to_text": 10_000,
+    "text_to_image": 20_000,
+    "unconditional": 30_000,
+}
 
 
 def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
@@ -61,6 +68,31 @@ def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDe
 def _decode_image_tokens(tokenizer, image_tokens: torch.Tensor, tokenizer_state: dict, grid_shape: tuple[int, int], device: torch.device) -> torch.Tensor:
     restored = restore_image_tokens(image_tokens.cpu(), tokenizer_state)
     return tokenizer.decode_token_batch(restored, grid_shape).to(device)
+
+
+@contextmanager
+def _eval_sampling_rng(
+    *,
+    enabled: bool,
+    base_seed: int,
+    device: torch.device,
+    branch: str,
+    batch_index: int,
+) -> Iterator[None]:
+    if not enabled:
+        yield
+        return
+    if branch not in _EVAL_RNG_BRANCH_OFFSETS:
+        raise ValueError(f"unsupported eval RNG branch: {branch}")
+    cuda_devices = []
+    if device.type == "cuda":
+        cuda_devices.append(device.index if device.index is not None else torch.cuda.current_device())
+    seed = int(base_seed) + _EVAL_RNG_BRANCH_OFFSETS[branch] + int(batch_index) * 1_009
+    with torch.random.fork_rng(devices=cuda_devices):
+        torch.manual_seed(seed)
+        if cuda_devices:
+            torch.cuda.manual_seed_all(seed)
+        yield
 
 
 def _projection_step_index(steps: int, progress: float) -> int:
@@ -467,8 +499,10 @@ def evaluate(
     if image_to_text_decoder not in {"sample", "candidate_denoiser_score"}:
         raise ValueError(f"unsupported image_to_text_decoder: {image_to_text_decoder}")
     label_values = torch.tensor(text_metadata.label_values, dtype=torch.long, device=device)
+    isolate_sampling_rng = config.eval.isolate_sampling_rng
+    eval_sampling_seed = config.eval.sampling_seed if config.eval.sampling_seed is not None else config.train.seed
 
-    for batch in tqdm(test_loader, desc="eval"):
+    for batch_index, batch in enumerate(tqdm(test_loader, desc="eval")):
         image_tokens = batch["image_tokens"].to(device)
         text_tokens = batch["text_tokens"].to(device)
         labels = batch["label"].to(device)
@@ -477,8 +511,73 @@ def evaluate(
         ceiling_pred = classify_images(classifier, decoded, config.dataset.name)
         ceiling_correct += (ceiling_pred == labels).sum().item()
 
-        if image_to_text_decoder == "sample":
-            sampled_tokens, final_logits = _sample_unified_with_logits(
+        with _eval_sampling_rng(
+            enabled=isolate_sampling_rng,
+            base_seed=eval_sampling_seed,
+            device=device,
+            branch="image_to_text",
+            batch_index=batch_index,
+        ):
+            if image_to_text_decoder == "sample":
+                sampled_tokens, final_logits = _sample_unified_with_logits(
+                    model=model,
+                    layout=layout,
+                    schedule_tables=schedule_tables,
+                    temperature=config.sampling.temperature,
+                    steps=config.sampling.steps,
+                    image_time_power=config.sampling.image_time_power,
+                    text_time_power=config.sampling.text_time_power,
+                    image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                    integrator=config.sampling.integrator,
+                    final_decode=config.sampling.final_decode,
+                    final_model_progress=config.sampling.final_model_progress,
+                    image_to_text_projection=config.sampling.image_to_text_projection,
+                    image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
+                    image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
+                    text_metadata=text_metadata,
+                    condition_image_tokens=image_tokens,
+                    condition_text_tokens=None,
+                )
+                sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
+                constrained_values = constrained_text_label_values(
+                    final_logits[:, layout.text_slice],
+                    text_metadata,
+                    codebook_size=layout.codebook_size,
+                )
+            else:
+                sampled_text, selected_candidate_indices, _ = _candidate_denoiser_score_text(
+                    model=model,
+                    layout=layout,
+                    schedule_tables=schedule_tables,
+                    image_tokens=image_tokens,
+                    text_metadata=text_metadata,
+                    image_time_power=config.sampling.image_time_power,
+                    text_time_power=config.sampling.text_time_power,
+                    image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                    progress_values=config.sampling.candidate_score_progress,
+                    num_noise=config.sampling.candidate_score_num_noise,
+                )
+                constrained_values = label_values.index_select(0, selected_candidate_indices)
+
+        sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
+        target_text_strings = decode_text_tokens(text_tokens, text_metadata)
+        image_to_text_exact += sum(pred == target for pred, target in zip(sampled_text_strings, target_text_strings))
+        valid_text = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
+        image_to_text_token_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
+        image_to_text_token_total += valid_text.sum().item()
+        image_to_text_position_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum(dim=0).cpu()
+        image_to_text_position_total += valid_text.sum(dim=0).cpu()
+        generated_text_counter.update(sampled_text_strings)
+        image_to_text_constrained_correct += (constrained_values == labels).sum().item()
+
+        with _eval_sampling_rng(
+            enabled=isolate_sampling_rng,
+            base_seed=eval_sampling_seed,
+            device=device,
+            branch="text_to_image",
+            batch_index=batch_index,
+        ):
+            sampled_images = sample_unified(
                 model=model,
                 layout=layout,
                 schedule_tables=schedule_tables,
@@ -494,42 +593,24 @@ def evaluate(
                 image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
                 image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
                 text_metadata=text_metadata,
-                condition_image_tokens=image_tokens,
-                condition_text_tokens=None,
-            )
-            sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
-            constrained_values = constrained_text_label_values(
-                final_logits[:, layout.text_slice],
-                text_metadata,
-                codebook_size=layout.codebook_size,
-            )
-        else:
-            sampled_text, selected_candidate_indices, _ = _candidate_denoiser_score_text(
-                model=model,
-                layout=layout,
-                schedule_tables=schedule_tables,
-                image_tokens=image_tokens,
-                text_metadata=text_metadata,
-                image_time_power=config.sampling.image_time_power,
-                text_time_power=config.sampling.text_time_power,
-                image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
-                progress_values=config.sampling.candidate_score_progress,
-                num_noise=config.sampling.candidate_score_num_noise,
-            )
-            constrained_values = label_values.index_select(0, selected_candidate_indices)
+                condition_image_tokens=None,
+                condition_text_tokens=text_tokens,
+            )[:, layout.image_slice]
+        decoded_images = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
+        image_pred = classify_images(classifier, decoded_images, config.dataset.name)
+        text_to_image_correct += (image_pred == labels).sum().item()
 
-        sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
-        target_text_strings = decode_text_tokens(text_tokens, text_metadata)
-        image_to_text_exact += sum(pred == target for pred, target in zip(sampled_text_strings, target_text_strings))
-        valid_text = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
-        image_to_text_token_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
-        image_to_text_token_total += valid_text.sum().item()
-        image_to_text_position_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum(dim=0).cpu()
-        image_to_text_position_total += valid_text.sum(dim=0).cpu()
-        generated_text_counter.update(sampled_text_strings)
-        image_to_text_constrained_correct += (constrained_values == labels).sum().item()
+        total += labels.numel()
 
-        sampled_images = sample_unified(
+    uncond_count = config.eval.num_unconditional_samples
+    with _eval_sampling_rng(
+        enabled=isolate_sampling_rng,
+        base_seed=eval_sampling_seed,
+        device=device,
+        branch="unconditional",
+        batch_index=0,
+    ):
+        sampled = sample_unified(
             model=model,
             layout=layout,
             schedule_tables=schedule_tables,
@@ -545,36 +626,10 @@ def evaluate(
             image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
             image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
             text_metadata=text_metadata,
+            batch_size=uncond_count,
             condition_image_tokens=None,
-            condition_text_tokens=text_tokens,
-        )[:, layout.image_slice]
-        decoded_images = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
-        image_pred = classify_images(classifier, decoded_images, config.dataset.name)
-        text_to_image_correct += (image_pred == labels).sum().item()
-
-        total += labels.numel()
-
-    uncond_count = config.eval.num_unconditional_samples
-    sampled = sample_unified(
-        model=model,
-        layout=layout,
-        schedule_tables=schedule_tables,
-        temperature=config.sampling.temperature,
-        steps=config.sampling.steps,
-        image_time_power=config.sampling.image_time_power,
-        text_time_power=config.sampling.text_time_power,
-        image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
-        integrator=config.sampling.integrator,
-        final_decode=config.sampling.final_decode,
-        final_model_progress=config.sampling.final_model_progress,
-        image_to_text_projection=config.sampling.image_to_text_projection,
-        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
-        image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
-        text_metadata=text_metadata,
-        batch_size=uncond_count,
-        condition_image_tokens=None,
-        condition_text_tokens=None,
-    )
+            condition_text_tokens=None,
+        )
     uncond_images = _decode_image_tokens(tokenizer, sampled[:, layout.image_slice], tokenizer_state, grid_shape, device)
     uncond_image_pred = classify_images(classifier, uncond_images, config.dataset.name)
     uncond_text_values = label_values_from_text_tokens(sampled[:, layout.text_slice] - layout.text_offset, text_metadata)
@@ -599,6 +654,8 @@ def evaluate(
         "image_to_text_projection": config.sampling.image_to_text_projection,
         "image_to_text_projection_progress": config.sampling.image_to_text_projection_progress,
         "image_to_text_projection_progresses": config.sampling.image_to_text_projection_progresses,
+        "isolate_sampling_rng": isolate_sampling_rng,
+        "sampling_seed": eval_sampling_seed,
         "candidate_score_progress": _candidate_score_progress_values(config.sampling.candidate_score_progress)
         if image_to_text_decoder == "candidate_denoiser_score"
         else None,

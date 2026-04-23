@@ -122,6 +122,8 @@ class EvalConfig:
     classifier_epochs: int
     classifier_batch_size: int
     classifier_lr: float
+    isolate_sampling_rng: bool = False
+    sampling_seed: int | None = None
 
 
 @dataclass(frozen=True)

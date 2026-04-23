@@ -28,6 +28,8 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_projection == "none"
     assert config.sampling.image_to_text_projection_progress == 0.5
     assert config.sampling.image_to_text_projection_progresses is None
+    assert config.eval.isolate_sampling_rng is False
+    assert config.eval.sampling_seed is None
 
 
 def test_load_understanding_config():
@@ -102,6 +104,8 @@ def test_load_projection_progresses_config(tmp_path):
     raw = yaml.safe_load(Path("configs/smoke.yaml").read_text(encoding="utf-8"))
     raw["sampling"]["image_to_text_projection"] = "candidate_renoise"
     raw["sampling"]["image_to_text_projection_progresses"] = [0.5, "0.75"]
+    raw["eval"]["isolate_sampling_rng"] = True
+    raw["eval"]["sampling_seed"] = 12345
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     config_path = config_dir / "smoke_multi_projection.yaml"
@@ -111,6 +115,8 @@ def test_load_projection_progresses_config(tmp_path):
 
     assert config.sampling.image_to_text_projection_progress == 0.5
     assert config.sampling.image_to_text_projection_progresses == [0.5, 0.75]
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 12345
 
 
 def test_load_i2t_power_short_configs():
