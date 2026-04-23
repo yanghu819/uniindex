@@ -165,6 +165,24 @@
 - Lesson: after midpoint `candidate_renoise`, the next useful sampler change should change how the projection is selected or repeated, not make the subsequent text trajectory noisier.
 - Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
 
+## Recent second-projection sweep
+
+- Run timestamp: `2026-04-23T09:17:11Z` (`2026-04-23 17:17:11 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/second_projection_sweep/20260423T091711Z-second-projection-sweep/summary.json`
+- Code state: remote detached checkout `823ef89`.
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Fixed sampler settings: `sampling.steps = 32`, `sampling.temperature = 0.7`, `sampling.integrator = legacy_progress_euler`, `sampling.final_model_progress = 0.95`, `sampling.image_to_text_projection = candidate_renoise`, `sampling.image_to_text_text_time_power = 4.0`.
+- Results:
+  - `[0.5]`: exact `0.16796875`, label `0.19140625`, token `0.3820047355958958`, t2i `0.97265625`, uncond `0.8125`
+  - `[0.5, 0.625]`: exact `0.21484375`, label `0.2421875`, token `0.4277821625887924`, t2i `0.9609375`, uncond `0.828125`
+  - `[0.5, 0.7]`: exact `0.23828125`, label `0.2578125`, token `0.43725335438042623`, t2i `0.9609375`, uncond `0.828125`
+  - `[0.5, 0.75]`: exact `0.23828125`, label `0.24609375`, token `0.4325177584846093`, t2i `0.9609375`, uncond `0.828125`
+  - `[0.5, 0.8]`: exact `0.22265625`, label `0.23046875`, token `0.4230465666929755`, t2i `0.9609375`, uncond `0.828125`
+- Decision: do not promote under the strict guard yet. `[0.5, 0.7]` is the best i2t candidate and strongly supports the sampler-state-drift diagnosis, but `text_to_image_accuracy = 0.9609375` misses the existing guard threshold by one 256-sample bin.
+- Interpretation: second projection is the first sampler-only change that clears the i2t exact target by a wide margin. Because projection is only applied when `condition_image_tokens` is set and `condition_text_tokens` is absent, the t2i drop is likely an eval RNG-coupling artifact from extra i2t re-noise calls changing the later t2i random stream, not a direct t2i sampler change. Verify with an RNG-isolated guard before promotion.
+- Lesson: the next fast iteration should focus around `[0.5, 0.7]`, either with an RNG-isolated eval guard or a narrow second-projection sweep near `0.65` to `0.75`. Do not spend more runs on lower gamma unless this path regresses.
+- Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
+
 ## Active image-dependence diagnostic
 
 - Run timestamp: `2026-04-22T05:10:29Z` (`2026-04-22 13:10:29 CST`)
@@ -219,7 +237,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, or lower-gamma sampling without a new reason. The next low-cost check should either pin/vendor the Emu3.5 tokenizer remote code for reliable offline runs, or run a narrower sampler-only check around canonical projection quality, such as candidate projection with a second projection point or candidate-score reranking after the midpoint reset.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, or lower-gamma sampling without a new reason. The next low-cost check should validate `[0.5, 0.7]` second projection with an RNG-isolated t2i/unconditional guard, then run a narrow second-projection sweep around `0.65` to `0.75` if the guard passes. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
