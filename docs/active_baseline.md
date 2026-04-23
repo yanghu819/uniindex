@@ -25,6 +25,9 @@
   - `sampling.integrator = legacy_progress_euler`
   - `sampling.final_decode = final_model_call`
   - `sampling.final_model_progress = 0.95`
+  - `sampling.image_to_text_decoder = sample`
+  - `sampling.image_to_text_projection = candidate_renoise`
+  - `sampling.image_to_text_projection_progress = 0.5`
 - Remote eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06/20260417T110458Z-eval/metrics.json`
 - Original checkpoint metrics with the old sampling default:
   - `image_to_text_exact_match = 0.12109375`
@@ -45,6 +48,13 @@
   - `image_to_text_token_accuracy = 0.36779794790844517`
   - `image_to_text_label_accuracy_constrained = 0.17578125`
   - `text_to_image_accuracy = 0.96484375`
+  - `unconditional_consistency = 0.8125`
+- Active projection eval path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06_candidate_proj_p050/20260423T041348Z-eval/metrics.json`
+- Active projection metrics:
+  - `image_to_text_exact_match = 0.16796875`
+  - `image_to_text_token_accuracy = 0.3820047355958958`
+  - `image_to_text_label_accuracy_constrained = 0.19140625`
+  - `text_to_image_accuracy = 0.97265625`
   - `unconditional_consistency = 0.8125`
 
 ## Canonical execution
@@ -107,6 +117,22 @@
   - `unconditional_consistency = 0.84375`
 - Decision: promote `final_model_progress = 0.95` in the active config. Keep `image_to_text_decoder = sample` as default; `candidate_denoiser_score` is useful as a label-rerank diagnostic but hurts free text token accuracy.
 
+## Active projection sampler
+
+- Run timestamp: `2026-04-23T04:13:48Z` (`2026-04-23 12:13:48 CST`)
+- Remote path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06_candidate_proj_p050/20260423T041348Z-eval/metrics.json`
+- Code state: remote detached checkout `f0d20a7`.
+- Config: `configs/flm_joint_work_fullvocab_tsw075_candidate_proj_p050.yaml`
+- Sampling change: at i2t sampler progress `0.5`, select the best canonical label candidate from current text logits, re-noise that projected text state at the next schedule time, then continue the legacy-progress trajectory.
+- Metrics:
+  - `image_to_text_exact_match = 0.16796875`
+  - `image_to_text_token_accuracy = 0.3820047355958958`
+  - `image_to_text_label_accuracy_constrained = 0.19140625`
+  - `text_to_image_accuracy = 0.97265625`
+  - `unconditional_consistency = 0.8125`
+- Decision: promote `candidate_renoise` at `progress = 0.5` into `configs/flm_joint_work_fullvocab_tsw075.yaml`. It beats the prior active decoder result on i2t exact, token accuracy, constrained label accuracy, and text-to-image accuracy while preserving unconditional consistency.
+- Environment note: this eval again emitted Emu3.5 VisionTokenizer remote-code download messages despite offline env vars. Pinning or vendoring that tokenizer code remains necessary before a long unattended run.
+
 ## Active image-dependence diagnostic
 
 - Run timestamp: `2026-04-22T05:10:29Z` (`2026-04-22 13:10:29 CST`)
@@ -161,7 +187,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should target sampler state distribution drift: try a midpoint text-state reprojection/re-noising or candidate-label projection around `progress = 0.5`, then continue the i2t sampler and evaluate whether the final prediction preserves the image-dependence margin.
+Do not continue increasing `text_sequence_weight` or the low-t/noise-only i2t strategy without a new reason. The next low-cost check should stay within sampler-only projection: sweep candidate projection progress around `0.4`, `0.5`, and `0.6`, and optionally compare `argmax_renoise` to confirm whether the gain comes from canonical label projection or from re-noising alone.
 
 ## Archived local trees
 

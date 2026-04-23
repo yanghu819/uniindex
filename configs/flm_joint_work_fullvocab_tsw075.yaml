@@ -71,6 +71,9 @@ sampling:
   integrator: legacy_progress_euler
   final_decode: final_model_call
   final_model_progress: 0.95
+  image_to_text_decoder: sample
+  image_to_text_projection: candidate_renoise
+  image_to_text_projection_progress: 0.5
 
 schedule:
   kind: empirical
