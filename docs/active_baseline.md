@@ -305,9 +305,27 @@
 - Environment note: the run reached completion, but the eval log showed Hugging Face remote-code activity for the Emu3.5 tokenizer path despite offline env vars. Before any longer run, pin or vendor/cache the tokenizer code so `HF_HUB_OFFLINE=1` is actually sufficient.
 - Lesson: low text time alone makes the text channel less useful, but it does not force the model to bind labels to the image condition. The next i2t change should use an explicit image-dependence check or sampler/time-conditioning alignment target, not just more task-mix pressure.
 
+## Recent mismatch-binding short probe
+
+- Run timestamp: `2026-04-23T13:59:30Z` (`2026-04-23 21:59:30 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/mismatch_binding/20260423T135930Z-mismatch-w010-short/summary.json`
+- Code state: remote detached checkout `1779f77`.
+- Base config: generated from `configs/flm_joint_work_fullvocab_short_i2tp40_tsw075.yaml`.
+- Change under test: `train.image_to_text_mismatch_weight = 0.10`, `train.image_to_text_mismatch_margin = 1.0`, evaluated with the active `candidate_renoise @ 0.5` sampler and RNG isolation.
+- Metrics:
+  - `image_to_text_exact_match = 0.0`
+  - `image_to_text_token_accuracy = 0.3362273086029992`
+  - `image_to_text_label_accuracy_constrained = 0.0703125`
+  - `text_to_image_accuracy = 0.13671875`
+  - `unconditional_consistency = 0.0`
+- Diagnostics: generated text collapsed to `"tie"` for 235/256 samples and `"tiee"` for 21/256 samples.
+- Decision: do not promote the first mismatch-binding implementation. Applying the mismatch margin loss during `joint` training is too destructive for the shared image/text manifold.
+- Lesson: the binding objective should be scoped to `image_to_text` updates only. The next quick probe keeps the same mismatch loss idea but removes it from `joint` tasks so stage1 remains a clean joint denoising warmup.
+- Environment note: the initial eval spent several minutes in Hugging Face remote-code HEAD retries. Re-running eval with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` completed, but Transformers still emitted dynamic-module "downloaded" warnings from the cached Emu3.5 files. Pin or vendor the tokenizer code before long unattended runs.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, or candidate-score blend without a new reason. The next experiment should stop changing only the sampler and instead add a small image-text binding objective, such as mismatched-image contrastive or consistency loss, then evaluate with the active `candidate_renoise @ 0.5` sampler. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, or joint-task mismatch loss without a new reason. The next experiment should test image-to-text-only mismatch binding, then evaluate with the active `candidate_renoise @ 0.5` sampler. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 

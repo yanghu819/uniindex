@@ -5,7 +5,7 @@ from uniindex.layout import TaskLayout, unified_targets
 from uniindex.state import build_flm_clean_state
 from uniindex.task_schedule import task_for_step
 from uniindex.text import build_text_metadata, shifted_label_text_tokens
-from uniindex.train import _apply_image_to_text_noise_policy, _image_text_mismatch_loss, _task_time_schedule
+from uniindex.train import _apply_image_to_text_noise_policy, _image_text_mismatch_loss, _loss_for_task, _task_time_schedule
 
 
 class ImageBoundTextModel(torch.nn.Module):
@@ -204,3 +204,37 @@ def test_image_text_mismatch_loss_skips_same_label_pairs():
     )
 
     assert loss.item() == 0.0
+
+
+def test_loss_for_task_does_not_apply_mismatch_loss_to_joint_task():
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    targets = unified_targets(torch.tensor([[0], [1]]), metadata.label_text_tokens, layout.codebook_size)
+    logits = torch.zeros((2, layout.seq_len, layout.vocab_size))
+
+    _, parts = _loss_for_task(
+        logits=logits,
+        targets=targets,
+        layout=layout,
+        joint_weight=0.5,
+        text_weight=1.0,
+        text_pad_id=metadata.pad_id,
+        label_text_tokens=shifted_label_text_tokens(metadata, token_offset=layout.codebook_size),
+        text_sequence_weight=0.0,
+        task="joint",
+        image_to_text_mismatch_weight=0.1,
+    )
+
+    assert parts["mismatch_loss"] == 0.0

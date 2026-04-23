@@ -200,7 +200,7 @@ def _loss_for_task(
             candidate_text_targets=label_text_tokens.to(masked.device),
         )
     mismatch_loss = torch.zeros((), device=masked.device)
-    if image_to_text_mismatch_weight > 0.0 and task in {"joint", "image_to_text"}:
+    if image_to_text_mismatch_weight > 0.0 and task == "image_to_text":
         if model is None or x1 is None or t_pos is None or modality_ids is None or valid_token_mask is None:
             raise ValueError("image_to_text mismatch loss requires model, x1, t_pos, modality_ids, and valid_token_mask")
         mismatch_loss = _image_text_mismatch_loss(
@@ -223,7 +223,7 @@ def _loss_for_task(
         loss = text_loss
     if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
         loss = loss + text_sequence_weight * sequence_loss
-    if image_to_text_mismatch_weight > 0.0 and task in {"joint", "image_to_text"}:
+    if image_to_text_mismatch_weight > 0.0 and task == "image_to_text":
         loss = loss + image_to_text_mismatch_weight * mismatch_loss
 
     return loss, {
