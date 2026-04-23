@@ -165,6 +165,25 @@
 - Lesson: after midpoint `candidate_renoise`, the next useful sampler change should change how the projection is selected or repeated, not make the subsequent text trajectory noisier.
 - Environment note: all sweep logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars.
 
+## Recent candidate-score projection sweep
+
+- Run timestamp: `2026-04-23T11:54:14Z` (`2026-04-23 19:54:14 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/candidate_score_projection/20260423T115414Z-candidate-score-projection/summary.json`
+- Code state: remote detached checkout `bc7c0cb`.
+- Base config: `configs/flm_joint_work_fullvocab_tsw075.yaml`
+- Guard: `eval.isolate_sampling_rng = true`, continuous per-branch RNG streams, `eval.sampling_seed = 420700`.
+- Fixed sampler settings: `sampling.steps = 32`, `sampling.temperature = 0.7`, `sampling.integrator = legacy_progress_euler`, `sampling.final_model_progress = 0.95`, `sampling.image_to_text_projection_progress = 0.5`.
+- Change under test: `sampling.image_to_text_projection = candidate_score_renoise`, which scores canonical text candidates with the image-conditioned denoiser and then re-noises the selected canonical candidate at the midpoint.
+- Results:
+  - active `candidate_renoise @ 0.5`: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`
+  - `candidate_score_renoise`, score `[0.5]`: exact `0.15234375`, label `0.16015625`, token `0.3701657458563536`, t2i `0.95703125`, uncond `0.859375`
+  - `candidate_score_renoise`, score `[0.5, 0.75]`: exact `0.140625`, label `0.1796875`, token `0.36306235201262826`, t2i `0.95703125`, uncond `0.859375`
+  - `candidate_score_renoise`, score `[0.5, 0.75, 0.9]`: exact `0.16015625`, label `0.1875`, token `0.3701657458563536`, t2i `0.95703125`, uncond `0.859375`
+- Decision: do not promote candidate-score projection. All candidate-score variants lose exact match, constrained label accuracy, and token accuracy versus the active midpoint candidate projection. The t2i and unconditional metrics stay identical under RNG isolation, so the result is an i2t-only regression rather than cross-branch noise.
+- Interpretation: selecting the midpoint canonical label from a separate denoiser-score pass is less reliable than selecting from the sampler's current text logits. The current trajectory state contains useful text-coherence information that the independent candidate score throws away.
+- Lesson: do not keep sweeping pure denoiser-score projection progress or noise count. If candidate scoring is used again, use it only as a weak tie-breaker blended with the current sampler logits, not as a replacement for the current projection score.
+- Environment note: the eval logs still show Emu3.5 VisionTokenizer remote-code download messages despite offline env vars; pin or vendor/cache this before longer unattended runs.
+
 ## Recent logit-normal gamma sweep
 
 - Run timestamp: `2026-04-23T10:57:17Z` (`2026-04-23 18:57:17 CST`)
@@ -271,7 +290,7 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, or plain second projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and change the projection selection rule, such as candidate-score reranking at the midpoint or a confidence-gated projection that preserves free text coherence. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, or pure candidate-score projection without a new reason. The next low-cost sampler check should use RNG-isolated eval and preserve the current sampler-logit projection as the primary signal, for example a weak candidate-score blend or a confidence-gated projection that avoids overwriting coherent free text. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
