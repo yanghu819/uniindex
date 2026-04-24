@@ -371,9 +371,47 @@
 - Lesson: the binding bottleneck is not solved by lower sampling gamma or pairwise mismatch margins. A small supervised label auxiliary can pull the i2t trajectory toward image evidence, but `weight = 0.05` for 300 steps is too much for preserving the shared generative manifold. The next quick run should sweep smaller label pressure from the same active checkpoint, for example `weight = 0.01` and `0.02`, before changing the objective again.
 - Environment note: the first eval failed because the new `models_dir` did not contain `eval/mnist_classifier.pt`; copying the active classifier fixed the retry. Generated fine-tune configs should either reuse the active classifier path or copy it into the new `models_dir/eval`. The run still emitted Emu3.5 remote-code "downloaded" warnings despite offline env vars.
 
+## Recent smaller label-weight fine-tune sweep
+
+- Run timestamp: `2026-04-24T01:29:38Z` (`2026-04-24 09:29:38 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/label_ft_sweep/20260424T012938Z-label-ft-mini-sweep/summary.json`
+- Code state: remote detached checkout `2a9b3c6`.
+- Base checkpoint: `models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt`.
+- Change under test: stage2-only fine-tune for 300 steps from the active checkpoint with `train.image_to_text_label_text_time = 0.0`, active `candidate_renoise @ 0.5`, and RNG-isolated eval seed `420700`.
+- Results:
+  - `label_weight = 0.01`: exact `0.25`, label `0.26953125`, token `0.4262036306235201`, t2i `0.93359375`, uncond `0.8125`
+  - `label_weight = 0.02`: exact `0.25`, label `0.26953125`, token `0.425414364640884`, t2i `0.93359375`, uncond `0.8125`
+- Decision: do not replace the active baseline. Both smaller weights preserve the strong i2t gain but still hurt text-to-image and unconditional metrics versus the active reference.
+- Interpretation: the issue is no longer that `label_weight` is simply too large. At 300 stage2 steps, even `0.01` is enough to push the shared model away from the active generative balance.
+- Artifact hygiene note: the original wrapper left `metadata.json` with a stale nonzero exit status after both cases completed; the case artifacts and `summary.json` are valid.
+- Lesson: direct label binding is still the most useful i2t training signal, but the next fine-tune should reduce total pressure, for example shorter step counts, rather than keep shrinking the label weight.
+
+## Recent checkpoint interpolation sweep
+
+- Run timestamp: `2026-04-24T03:23:19Z` (`2026-04-24 11:23:19 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/checkpoint_interp/20260424T032319Z-checkpoint-interp/summary.json`
+- Code state: remote detached checkout `2a9b3c6`.
+- Active checkpoint: `models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt`.
+- Source checkpoint: `models/fullvocab_long_tsw075_i2tr06_label_ft_w001/checkpoints/stage2_latest.pt`.
+- Change under test: eval-only model weight interpolation, `model = (1 - alpha) * active + alpha * label_ft`, with active `candidate_renoise @ 0.5` and RNG-isolated eval seed `420700`.
+- Results:
+  - `alpha = 0.125`: exact `0.17578125`, label `0.19921875`, token `0.39857932123125495`, t2i `0.9609375`, uncond `0.765625`
+  - `alpha = 0.25`: exact `0.1953125`, label `0.21875`, token `0.40568271507498027`, t2i `0.97265625`, uncond `0.875`
+  - `alpha = 0.375`: exact `0.203125`, label `0.24609375`, token `0.4159431728492502`, t2i `0.9609375`, uncond `0.859375`
+  - `alpha = 0.50`: exact `0.2265625`, label `0.25390625`, token `0.4262036306235201`, t2i `0.94921875`, uncond `0.765625`
+- Active reference for the same RNG guard: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`.
+- Decision: do not promote an interpolated checkpoint yet. `alpha = 0.375` is the best balanced point and improves i2t while preserving t2i/uncond, but it misses the promotion exact threshold `0.21875`. `alpha = 0.50` clears the i2t threshold but fails the t2i/uncond guards.
+- Best-case image-dependence diagnostic for `alpha = 0.375`:
+  - `progress = 0.50`: true-minus-shuffled label margin `0.33203125`, exact margin `0.0546875`
+  - `progress = 0.75`: true-minus-shuffled label margin `0.12890625`, exact margin `0.1640625`
+  - `progress = 0.90`: true-minus-shuffled label margin `-0.015625`, exact margin `0.01953125`
+  - `progress = 0.95`: true-minus-shuffled label margin `-0.00390625`, exact margin `0.015625`
+- Interpretation: weight interpolation is useful. It shows the label-ft binding direction is partially compatible with the active model: `alpha = 0.25` and `0.375` improve i2t and keep the guard metrics. The remaining bottleneck is finding a better route to the `0.375-0.50` region without the unconditional collapse seen at `0.50`.
+- Environment note: the first interpolation runner generated configs one directory too deep under `configs_generated/checkpoint_interp/...`, which made `load_config()` infer the wrong repo root. The fixed configs live directly under `configs_generated/`. Eval logs still show Emu3.5 remote-code warnings despite offline env vars.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. Checkpoint resume/fine-tune support now exists, and the direct label auxiliary is promising but too strong at `weight = 0.05`. The next experiment should use the same active long checkpoint and sampler, sweep smaller `train.image_to_text_label_weight` values such as `0.01` and `0.02`, copy/reuse the active classifier for eval, and require t2i/unconditional preservation before promotion. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. Checkpoint interpolation is a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should use the same active checkpoint and sampler, hold `train.image_to_text_label_weight = 0.01`, and sweep shorter stage2 fine-tune lengths such as `100`, `150`, and `200` steps. Promote only if i2t improves while t2i and unconditional stay near the active RNG-isolated reference. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
