@@ -409,6 +409,32 @@
 - Interpretation: weight interpolation is useful. It shows the label-ft binding direction is partially compatible with the active model: `alpha = 0.25` and `0.375` improve i2t and keep the guard metrics. The remaining bottleneck is finding a better route to the `0.375-0.50` region without the unconditional collapse seen at `0.50`.
 - Environment note: the first interpolation runner generated configs one directory too deep under `configs_generated/checkpoint_interp/...`, which made `load_config()` infer the wrong repo root. The fixed configs live directly under `configs_generated/`. Eval logs still show Emu3.5 remote-code warnings despite offline env vars.
 
+## Recent i2t understanding visual diagnostics
+
+- Run timestamp: `2026-04-24T04:17:46Z` (`2026-04-24 12:17:46 CST`)
+- Remote comparison summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/i2t_understanding_compare/20260424T041933Z-i2t-understanding-compare/summary.json`
+- Code state: remote detached checkout `bcbaa35`.
+- New command: `./run.sh diagnose-i2t-understanding --config ... --sample-count 32 --progress 0.5 --progress 0.75 --progress 0.9 --progress 0.95`
+- Outputs per config:
+  - `i2t_understanding/sample_cards.png`: original image, target text, free text, constrained top label, direct-vs-sampler anchor labels
+  - `i2t_understanding/confusion_matrix.png`: true label versus final free i2t constrained label
+  - `i2t_understanding/train_vs_sampler_margins.png`: true-minus-shuffled margins for train-style and sampler-style states
+  - `i2t_understanding/samples.json`: per-sample top-3 label candidates, margins, shuffled/random controls, and failure type
+- Active 32-sample final free i2t:
+  - true-image exact `0.09375`, label `0.125`, token `0.3525641025641026`, mean true-label margin `-17.757659912109375`
+  - shuffled-image label `0.0625`, random-token label `0.15625`
+  - failure counts: `label_wrong = 22`, `image_insensitive = 6`, `exact_correct = 3`, `label_correct_text_wrong = 1`
+- `alpha = 0.375` 32-sample final free i2t:
+  - true-image exact `0.15625`, label `0.1875`, token `0.41025641025641024`, mean true-label margin `-16.626012802124023`
+  - shuffled-image label `0.0625`, random-token label `0.125`
+  - failure counts: `label_wrong = 21`, `image_insensitive = 5`, `exact_correct = 5`, `label_correct_text_wrong = 1`
+- Train-vs-sampler margins:
+  - active at progress `0.5`: direct label margin `0.46875`, sampler label margin `0.34375`; final exact remains weak
+  - `alpha = 0.375` at progress `0.5`: direct label margin `0.46875`, sampler label margin `0.34375`
+  - `alpha = 0.375` improves sampler exact margin at progress `0.5/0.75/0.9/0.95` from active `0.0/0.03125/0.0625/0.0625` to `0.09375/0.09375/0.125/0.09375`
+- Interpretation: this supports a training-inference trajectory mismatch, not just a missing classifier signal. Direct train-style image evidence is already visible at low/mid progress, but the final free sampler still has negative true-label margins and many label-wrong samples. The interpolation checkpoint appears to make the sampler trajectory retain image evidence better, even though it is not promotable on full metrics.
+- Lesson: future i2t experiments should report sample cards, confusion matrices, and train-vs-sampler margins alongside aggregate metrics. The next training change should make stage2 see sampler-like text states or reduce fine-tune pressure, rather than only increasing direct label classification strength.
+
 ## Next experiment
 
 Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. Checkpoint interpolation is a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should use the same active checkpoint and sampler, hold `train.image_to_text_label_weight = 0.01`, and sweep shorter stage2 fine-tune lengths such as `100`, `150`, and `200` steps. Promote only if i2t improves while t2i and unconditional stay near the active RNG-isolated reference. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
