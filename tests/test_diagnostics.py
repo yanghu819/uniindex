@@ -1,7 +1,15 @@
 import torch
 import pytest
 
-from uniindex.diagnostics import _image_condition_tokens, _image_dependence_margins, _trace_step_requests
+from uniindex.diagnostics import (
+    _confusion_matrix,
+    _image_condition_tokens,
+    _image_dependence_margins,
+    _label_score_summary,
+    _trace_step_requests,
+    _true_label_margin,
+)
+from uniindex.text import build_text_metadata, shifted_label_text_tokens
 
 
 def test_image_condition_tokens_builds_control_batches():
@@ -79,3 +87,42 @@ def test_trace_step_requests_map_progress_to_nearest_sampler_step():
 def test_trace_step_requests_validate_bounds():
     with pytest.raises(ValueError, match="trace progress"):
         _trace_step_requests(32, (1.2,))
+
+
+def test_confusion_matrix_counts_known_label_pairs():
+    assert _confusion_matrix([0, 1, 1, 2], [0, 0, 2, 2], [0, 1, 2]) == [
+        [1, 0, 0],
+        [1, 0, 1],
+        [0, 0, 1],
+    ]
+
+
+def test_label_score_summary_scores_canonical_text_candidates():
+    metadata = build_text_metadata(
+        kind="char",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    codebook_size = 3
+    candidate_tokens = shifted_label_text_tokens(metadata, token_offset=codebook_size)
+    vocab_size = codebook_size + metadata.vocab_size
+    logits = torch.full((2, metadata.seq_len, vocab_size), -10.0)
+    logits[0].scatter_(dim=1, index=candidate_tokens[1, :, None], value=10.0)
+    logits[1].scatter_(dim=1, index=candidate_tokens[0, :, None], value=10.0)
+
+    scores, predicted_labels, top_labels = _label_score_summary(
+        logits,
+        metadata,
+        codebook_size=codebook_size,
+        top_k=2,
+    )
+
+    assert scores.shape == (2, 2)
+    assert predicted_labels.tolist() == [1, 0]
+    assert top_labels[:, 0].tolist() == [1, 0]
+    margins = _true_label_margin(scores, torch.tensor([1, 1]), metadata.label_values)
+    assert margins[0] > 0
+    assert margins[1] < 0
