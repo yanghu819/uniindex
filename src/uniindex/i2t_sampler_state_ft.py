@@ -281,7 +281,11 @@ def _sampler_state_loss(
     candidate_text_targets: torch.Tensor,
     sequence_weight: float,
 ) -> tuple[torch.Tensor, dict[str, float], torch.Tensor]:
-    logits = mask_logits(student(state.z_t, state.t_pos, modality_ids), layout=layout)
+    # Sampler traces are produced under inference_mode by the frozen teacher.
+    # Clone them here so autograd can save the student input for backward.
+    z_t = state.z_t.clone()
+    t_pos = state.t_pos.clone()
+    logits = mask_logits(student(z_t, t_pos, modality_ids), layout=layout)
     text_logits = logits[:, layout.text_slice]
     text_loss = _masked_text_loss(
         text_logits.reshape(-1, logits.shape[-1]),

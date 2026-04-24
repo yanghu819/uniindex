@@ -4,6 +4,7 @@ import torch
 
 from uniindex.i2t_sampler_state_ft import (
     _generate_i2t_sampler_states,
+    _sampler_state_loss,
     _shuffled_image_contrast_loss,
     _trace_step_requests,
 )
@@ -70,6 +71,56 @@ def test_generate_i2t_sampler_states_returns_requested_shapes():
         assert state.z_t.shape == (2, layout.seq_len, layout.vocab_size)
         assert state.t_pos.shape == (2, layout.seq_len)
         assert torch.equal(state.t_pos[:, layout.image_slice], torch.ones(2, layout.image_seq_len))
+
+
+def test_sampler_state_loss_accepts_inference_mode_traces_for_backward():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    teacher = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    student = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    image_tokens = torch.tensor([[0, 1], [2, 0]])
+    state = _generate_i2t_sampler_states(
+        teacher=teacher,
+        config=_sampler_config(),
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        text_metadata=None,
+        image_tokens=image_tokens,
+        progress_values=(0.5,),
+    )[0]
+    if hasattr(state.z_t, "is_inference"):
+        assert state.z_t.is_inference()
+
+    loss, _, _ = _sampler_state_loss(
+        student=student,
+        state=state,
+        layout=layout,
+        modality_ids=layout.position_modalities(),
+        text_targets=torch.tensor([[3, 4], [4, 5]]),
+        text_pad_id=3,
+        candidate_text_targets=torch.tensor([[3, 4], [4, 5]]),
+        sequence_weight=1.0,
+    )
+
+    loss.backward()
+    assert any(parameter.grad is not None for parameter in student.parameters())
 
 
 def test_shuffled_image_contrast_loss_uses_only_label_changed_pairs():
