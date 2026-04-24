@@ -435,9 +435,32 @@
 - Interpretation: this supports a training-inference trajectory mismatch, not just a missing classifier signal. Direct train-style image evidence is already visible at low/mid progress, but the final free sampler still has negative true-label margins and many label-wrong samples. The interpolation checkpoint appears to make the sampler trajectory retain image evidence better, even though it is not promotable on full metrics.
 - Lesson: future i2t experiments should report sample cards, confusion matrices, and train-vs-sampler margins alongside aggregate metrics. The next training change should make stage2 see sampler-like text states or reduce fine-tune pressure, rather than only increasing direct label classification strength.
 
+## Recent i2t fixed-batch overfit probe
+
+- Run timestamp: `2026-04-24T06:56:37Z` (`2026-04-24 14:56:37 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06_candidate_proj_p050/20260424T065637Z-probe-i2t-overfit/overfit_summary.json`
+- Launcher metadata: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/i2t_overfit_launcher/20260424T065612Z-base/metadata.json`
+- Code state: remote detached checkout `946ed6c`.
+- New command: `./run.sh probe-i2t-overfit --config configs/flm_joint_work_fullvocab_tsw075_candidate_proj_p050.yaml --steps 120 --sample-count 16 --test-sample-count 16 --eval-every 30 --lr 0.0001`
+- Change under test: no new loss and no long-term checkpoint. The active stage2 checkpoint is fine-tuned in memory on a fixed 16-example i2t mini-batch, then compared against a fixed 16-example held-out test slice with true-image and shuffled-image controls.
+- Fixed train sampler metrics:
+  - initial true-image: exact `0.3125`, label `0.3125`, token `0.5`, mean true-label margin `-10.483437538146973`
+  - final true-image: exact `0.875`, label `0.875`, token `0.9102564102564102`, mean true-label margin `15.650797843933105`
+  - final shuffled-image: exact `0.0`, label `0.0625`, token `0.21794871794871795`, mean true-label margin `-30.93375015258789`
+- Fixed held-out sampler metrics:
+  - initial true-image: exact `0.125`, label `0.125`, token `0.34210526315789475`, mean true-label margin `-18.82723617553711`
+  - final true-image: exact `0.3125`, label `0.3125`, token `0.42105263157894735`, mean true-label margin `-15.3848295211792`
+  - final shuffled-image: exact `0.25`, label `0.3125`, token `0.39473684210526316`, mean true-label margin `-20.782306671142578`
+- Direct denoiser behavior after overfit:
+  - fixed train at progress `0.50`: true-image label `1.0`, shuffled-image label `0.0`; this confirms the model can learn true image-to-text binding on the fixed batch.
+  - fixed train at progress `0.90/0.95`: shuffled-image label rises to `1.0`; high-gamma direct states are dominated by the clean text target and are not a reliable image-dependence measure.
+  - held-out at progress `0.95`: true-image exact `1.0`, shuffled-image exact `0.875`; again, high-gamma direct denoising is mostly text self-prompting.
+- Interpretation: the current denoiser has enough capacity to memorize image-to-text binding. The main bottleneck is not "can the transformer represent the mapping?" It is generalizing the binding and keeping it on the free sampler trajectory. The fixed-batch gain does not transfer cleanly to held-out sampler metrics, so simply adding a tiny LLM or more text modeling capacity is not the next highest-leverage move.
+- Lesson: use `probe-i2t-overfit` before changing architecture. If a future objective cannot quickly overfit the fixed train batch while keeping shuffled-image sampler low, reject it early. If it overfits fixed train but not held-out, the next change should target sampler-state binding or regularized image-text contrast, not a larger text prior.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, or pairwise mismatch-margin weight without a new reason. Checkpoint interpolation is a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should use the same active checkpoint and sampler, hold `train.image_to_text_label_weight = 0.01`, and sweep shorter stage2 fine-tune lengths such as `100`, `150`, and `200` steps. Promote only if i2t improves while t2i and unconditional stay near the active RNG-isolated reference. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, or tiny-LLM text priors without a new reason. Checkpoint interpolation is a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should make the model train on sampler-like text states from the active sampler, then evaluate whether fixed-batch and held-out sampler margins improve together. Keep the run short and use `probe-i2t-overfit` as the first acceptance test before any longer fine-tune. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
