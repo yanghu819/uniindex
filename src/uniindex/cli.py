@@ -19,6 +19,7 @@ from .ablation import run_compact_ablation
 from .i2t_power_sweep import run_i2t_power_sweep
 from .i2t_repeats_sweep import run_i2t_repeats_sweep
 from .i2t_overfit import run_i2t_overfit_probe
+from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -64,6 +65,16 @@ def _parser() -> argparse.ArgumentParser:
     probe_i2t_overfit.add_argument("--label-weight", type=float)
     probe_i2t_overfit.add_argument("--label-text-time", type=float)
     probe_i2t_overfit.add_argument("--save-model", action="store_true")
+
+    probe_i2t_sampler_state_ft = subparsers.add_parser("probe-i2t-sampler-state-ft")
+    probe_i2t_sampler_state_ft.add_argument("--config", required=True)
+    probe_i2t_sampler_state_ft.add_argument("--steps", type=int, default=150)
+    probe_i2t_sampler_state_ft.add_argument("--lr", type=float)
+    probe_i2t_sampler_state_ft.add_argument("--progress", action="append", type=float, dest="progress_values")
+    probe_i2t_sampler_state_ft.add_argument("--contrast-weight", type=float, default=0.0)
+    probe_i2t_sampler_state_ft.add_argument("--contrast-margin", type=float, default=1.0)
+    probe_i2t_sampler_state_ft.add_argument("--sequence-weight", type=float)
+    probe_i2t_sampler_state_ft.add_argument("--save-every", type=int)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -229,6 +240,39 @@ def _run_probe_i2t_overfit(
     return 0
 
 
+def _run_probe_i2t_sampler_state_ft(
+    *,
+    config_path: str,
+    steps: int,
+    lr: float | None,
+    progress_values: list[float] | None,
+    contrast_weight: float,
+    contrast_margin: float,
+    sequence_weight: float | None,
+    save_every: int | None,
+) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-i2t-sampler-state-ft")
+    try:
+        run_i2t_sampler_state_ft(
+            config=config,
+            steps=steps,
+            lr=lr,
+            progress_values=tuple(progress_values) if progress_values else None,
+            contrast_weight=contrast_weight,
+            contrast_margin=contrast_margin,
+            sequence_weight=sequence_weight,
+            save_every=save_every,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -321,6 +365,17 @@ def main(argv: list[str] | None = None) -> int:
             label_weight=args.label_weight,
             label_text_time=args.label_text_time,
             save_model=args.save_model,
+        )
+    if args.command == "probe-i2t-sampler-state-ft":
+        return _run_probe_i2t_sampler_state_ft(
+            config_path=args.config,
+            steps=args.steps,
+            lr=args.lr,
+            progress_values=args.progress_values,
+            contrast_weight=args.contrast_weight,
+            contrast_margin=args.contrast_margin,
+            sequence_weight=args.sequence_weight,
+            save_every=args.save_every,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)
