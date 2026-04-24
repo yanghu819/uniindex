@@ -458,9 +458,42 @@
 - Interpretation: the current denoiser has enough capacity to memorize image-to-text binding. The main bottleneck is not "can the transformer represent the mapping?" It is generalizing the binding and keeping it on the free sampler trajectory. The fixed-batch gain does not transfer cleanly to held-out sampler metrics, so simply adding a tiny LLM or more text modeling capacity is not the next highest-leverage move.
 - Lesson: use `probe-i2t-overfit` before changing architecture. If a future objective cannot quickly overfit the fixed train batch while keeping shuffled-image sampler low, reject it early. If it overfits fixed train but not held-out, the next change should target sampler-state binding or regularized image-text contrast, not a larger text prior.
 
+## Recent sampler-state binding FT
+
+- Run timestamp: `2026-04-24T07:45:08Z` (`2026-04-24 15:45:08 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_state_binding/20260424T074508Z-sampler-state-binding/summary.json`
+- Code state: remote detached checkout `179c25f`.
+- New command: `./run.sh probe-i2t-sampler-state-ft --config ... --steps ... --progress 0.5 --progress 0.75 --progress 0.9`
+- Change under test: freeze an active-checkpoint teacher, use the active `candidate_renoise @ 0.5` sampler to generate sampler-like i2t text states, then fine-tune a student on text CE plus sequence loss. The contrast case adds shuffled-image margin loss with `weight = 0.02`.
+- Implementation note: the first remote smoke exposed a backward failure because teacher traces were created under inference mode. The fix clones `z_t` and `t_pos` before the student forward, and the regression test now covers backward through inference-mode sampler traces.
+- Validation:
+  - `.venv/bin/python -m pytest -q` -> `73 passed`
+  - `.venv/bin/ruff check src/uniindex/i2t_sampler_state_ft.py tests/test_i2t_sampler_state_ft.py` -> passed
+- `ssb_ce` eval metrics:
+  - `image_to_text_exact_match = 0.10546875`
+  - `image_to_text_token_accuracy = 0.4956590370955012`
+  - `image_to_text_label_accuracy_constrained = 0.44921875`
+  - `text_to_image_accuracy = 0.62890625`
+  - `unconditional_consistency = 0.0`
+- `ssb_ce_contrast_w002` eval metrics:
+  - `image_to_text_exact_match = 0.10546875`
+  - `image_to_text_token_accuracy = 0.494869771112865`
+  - `image_to_text_label_accuracy_constrained = 0.44921875`
+  - `text_to_image_accuracy = 0.65625`
+  - `unconditional_consistency = 0.0`
+- `ssb_ce` 32-sample understanding diagnostic:
+  - true-image final: exact `0.125`, label `0.5625`, token `0.5897435897435898`, mean true-label margin `0.2681337893009186`
+  - shuffled-image final: exact `0.0`, label `0.03125`, token `0.2692307692307692`, mean true-label margin `-4.192084312438965`
+  - random-image-token final: exact `0.0`, label `0.0625`, token `0.3141025641025641`, mean true-label margin `-3.532057762145996`
+  - failure counts: `exact_correct = 4`, `label_correct_text_wrong = 14`, `label_wrong = 12`, `image_insensitive = 2`
+- Decision: do not promote sampler-state FT. It proves the model can be pushed to use image evidence on sampler-like states, because true-image label accuracy separates sharply from shuffled/random controls. But full-model FT is too destructive: both CE-only and contrast variants collapse t2i and unconditional consistency.
+- Lesson: the next training-side idea should preserve the shared generative model while adding binding. Use a smaller write surface such as freezing most layers, adapter-only binding, or active-checkpoint KL/anchor regularization on t2i/unconditional logits. Do not add a tiny LLM for MNIST label text; the failure is not language modeling capacity.
+- Run control note: the contrast case was stopped after eval metrics because the decision guards had already failed and the runner was spending non-informative time in Hugging Face remote-code retries before contrast diagnostics.
+- Environment note: eval and diagnostics still attempted Hugging Face remote-code HEAD/download for `BAAI/Emu3.5-VisionTokenizer`. Pinning or vendoring that tokenizer code and forcing offline mode remains required before longer unattended experiments.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, or tiny-LLM text priors without a new reason. Checkpoint interpolation is a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should make the model train on sampler-like text states from the active sampler, then evaluate whether fixed-batch and held-out sampler margins improve together. Keep the run short and use `probe-i2t-overfit` as the first acceptance test before any longer fine-tune. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should preserve the active generator while adding binding pressure: freeze most of the model or add active-checkpoint KL/anchor regularization, then re-run the same short sampler-state binding guard. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
