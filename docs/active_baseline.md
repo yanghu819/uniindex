@@ -527,9 +527,35 @@
 - Lesson: future training changes should be evaluated first on `no_i2t_projection` to measure raw understanding. Only after raw i2t improves should `candidate_renoise @ 0.5` be re-enabled as a convenience sampler, not as proof of understanding.
 - Environment note: even with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`, the logs still print cached Emu3.5 dynamic-module "downloaded" warnings. Pin/vendor remains necessary.
 
+## Recent anchored sampler-state binding raw guard
+
+- Run timestamp: `2026-04-25T09:43:44Z` (`2026-04-25 17:43:44 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_state_anchor/20260425T094344Z-ssb-anchor-raw/summary.json`
+- Code state: remote detached checkout `70ad6f6`.
+- Method: start from the active checkpoint, train only the final transformer block plus norm/head on sampler-state i2t states, and add teacher KL anchors on `joint` and `text_to_image` states. Runtime config used the raw `no_i2t_projection` guard so the result measures real i2t trajectory understanding, not the `candidate_renoise` sampler crutch.
+- Local validation before the run:
+  - `.venv/bin/python -m pytest tests/test_i2t_sampler_state_ft.py -q` -> `7 passed`
+  - `.venv/bin/ruff check src/uniindex/i2t_sampler_state_ft.py src/uniindex/cli.py tests/test_i2t_sampler_state_ft.py` -> passed
+  - `.venv/bin/python -m pytest -q` -> `78 passed`
+- `last_block_anchor_w100` metrics:
+  - `image_to_text_exact_match = 0.0078125`
+  - `image_to_text_token_accuracy = 0.35753749013417524`
+  - `image_to_text_label_accuracy_constrained = 0.27734375`
+  - `text_to_image_accuracy = 0.796875`
+  - `unconditional_consistency = 0.0`
+- Raw guard reference (`no_i2t_projection`): exact `0.1328125`, label `0.1484375`, token `0.345698500394633`, t2i `0.95703125`, uncond `0.859375`.
+- 32-sample understanding diagnostic for `last_block_anchor_w100`:
+  - final true-image sampler: exact `0.0`, label `0.375`, token `0.3782051282051282`, mean true-label margin `-0.5351239442825317`
+  - final shuffled-image sampler: exact `0.0`, label `0.0625`, token `0.28205128205128205`, mean true-label margin `-2.1434545516967773`
+  - final random-image-token sampler: exact `0.0`, label `0.0625`, token `0.3076923076923077`, mean true-label margin `-1.712289810180664`
+  - failure counts: `label_correct_text_wrong = 13`, `label_wrong = 16`, `image_insensitive = 3`
+- Decision: do not promote. The first case increased constrained label separation but destroyed free text exact and shared generation, so the planned `last_two_blocks_anchor_w100` case was stopped early before spending another training window.
+- Lesson: this result is more informative than a plain failure. The model can be pushed toward image-conditioned class evidence, but the current objective does it by corrupting the sequence decoder/generator. `anchor_weight = 1.0` on final-block sampler-state FT is too destructive; future binding probes need an explicit early-abort gate on raw exact/t2i/uncond and should either use a smaller/lower-rank write surface or change the target so label binding cannot win while text sequence quality collapses.
+- Environment note: eval and diagnostics again printed Emu3.5 dynamic-module "downloaded" warnings. Pin/vendor remains required before long unattended runs.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should preserve the active generator while adding binding pressure: freeze most of the model or add active-checkpoint KL/anchor regularization, then evaluate first on `configs/flm_joint_work_fullvocab_tsw075_no_i2t_projection.yaml` to measure raw trajectory understanding before re-enabling `candidate_renoise`. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should keep the raw `no_i2t_projection` guard and add a cheap early-abort criterion: after 25-50 steps, stop unless raw i2t exact, t2i, and uncond all remain near guard. The next objective should prevent "label-only wins"; candidate directions are label-conditioned sequence CE with stricter text exact gating, lower-rank/adaptor-only binding, or an explicit image/text contrast term applied before the final text decoder rather than updating the shared generator path. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
