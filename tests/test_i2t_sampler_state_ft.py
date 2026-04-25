@@ -3,17 +3,21 @@ from types import SimpleNamespace
 import torch
 
 from uniindex.i2t_sampler_state_ft import (
+    _anchor_kl_loss,
     _generate_i2t_sampler_states,
+    _masked_kl_divergence,
     _sampler_state_loss,
+    _set_trainable_scope,
     _shuffled_image_contrast_loss,
     _trace_step_requests,
 )
-from uniindex.layout import TaskLayout
+from uniindex.layout import TaskLayout, unified_targets
 from uniindex.model import UnifiedDenoiser
+from uniindex.state import build_flm_clean_state
 
 
 def _sampler_config(**overrides):
-    values = {
+    sampling_values = {
         "steps": 4,
         "temperature": 1.0,
         "image_time_power": 1.0,
@@ -30,8 +34,13 @@ def _sampler_config(**overrides):
         "image_to_text_candidate_score_num_noise": 1,
         "image_to_text_candidate_score_blend_weight": 0.0,
     }
-    values.update(overrides)
-    return SimpleNamespace(sampling=SimpleNamespace(**values))
+    sampling_values.update(overrides)
+    train_values = {
+        "image_time_power": 1.0,
+        "text_time_power": 1.0,
+        "image_to_text_text_time_power": 1.0,
+    }
+    return SimpleNamespace(sampling=SimpleNamespace(**sampling_values), train=SimpleNamespace(**train_values))
 
 
 def test_trace_step_requests_selects_nearest_sampler_step():
@@ -156,3 +165,83 @@ def test_shuffled_image_contrast_loss_uses_only_label_changed_pairs():
 
     assert low_loss.item() < 0.15
     assert high_loss.item() > 1.0
+
+
+def test_trainable_scope_limits_updated_parameters():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    model = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=2,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+
+    stats = _set_trainable_scope(model, "last_block")
+
+    assert 0 < stats["trainable_parameters"] < stats["total_parameters"]
+    assert any(parameter.requires_grad for parameter in model.transformer.layers[-1].parameters())
+    assert not any(parameter.requires_grad for parameter in model.transformer.layers[0].parameters())
+    assert all(parameter.requires_grad for parameter in model.head.parameters())
+
+
+def test_masked_kl_divergence_is_zero_for_identical_logits():
+    layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=3)
+    logits = torch.randn(2, layout.seq_len, layout.vocab_size)
+
+    loss = _masked_kl_divergence(
+        student_logits=logits,
+        teacher_logits=logits.clone(),
+        valid_token_mask=layout.position_valid_token_mask(),
+        temperature=1.0,
+    )
+
+    assert loss.item() < 1e-6
+
+
+def test_anchor_kl_loss_is_zero_when_student_matches_teacher():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    teacher = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    student = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    student.load_state_dict(teacher.state_dict())
+    image_tokens = torch.tensor([[0, 1], [2, 0]])
+    text_tokens = torch.tensor([[0, 1], [1, 2]])
+    targets = unified_targets(image_tokens, text_tokens, layout.codebook_size)
+    x1 = build_flm_clean_state(targets, layout.vocab_size)
+
+    loss = _anchor_kl_loss(
+        teacher=teacher,
+        student=student,
+        config=_sampler_config(),
+        x1=x1,
+        progress=torch.tensor([0.25, 0.75]),
+        layout=layout,
+        modality_ids=layout.position_modalities(),
+        schedule_tables={"kind": "power"},
+        valid_token_mask=layout.position_valid_token_mask(),
+        anchor_tasks=("joint", "text_to_image"),
+        temperature=1.0,
+    )
+
+    assert loss.item() < 1e-6

@@ -21,10 +21,12 @@ from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_devi
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise, sample_masked_noise
 from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens
-from .train import _masked_text_loss, _sequence_text_loss, latest_checkpoint_path
+from .train import _build_zt, _masked_text_loss, _sequence_text_loss, _task_time_schedule, latest_checkpoint_path
 
 
 DEFAULT_SAMPLER_STATE_PROGRESS = (0.5, 0.75, 0.9)
+DEFAULT_ANCHOR_TASKS = ("joint", "text_to_image")
+TRAINABLE_SCOPES = ("all", "head", "last_block", "last_two_blocks")
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,39 @@ def _load_source_model(
     model = _build_model(config, layout, device)
     model.load_state_dict(payload["model"])
     return model, tokenizer_state, layout, payload
+
+
+def _set_trainable_scope(model: UnifiedDenoiser, scope: str) -> dict[str, int | str]:
+    if scope not in TRAINABLE_SCOPES:
+        raise ValueError(f"unsupported trainable scope {scope!r}; expected one of {TRAINABLE_SCOPES}")
+
+    for parameter in model.parameters():
+        parameter.requires_grad_(scope == "all")
+
+    if scope in {"last_block", "last_two_blocks"}:
+        layer_count = 1 if scope == "last_block" else 2
+        for layer in list(model.transformer.layers)[-layer_count:]:
+            for parameter in layer.parameters():
+                parameter.requires_grad_(True)
+        for module in (model.norm, model.head):
+            for parameter in module.parameters():
+                parameter.requires_grad_(True)
+    elif scope == "head":
+        for module in (model.norm, model.head):
+            for parameter in module.parameters():
+                parameter.requires_grad_(True)
+
+    total_parameters = sum(parameter.numel() for parameter in model.parameters())
+    trainable_parameters = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+    trainable_tensors = sum(1 for parameter in model.parameters() if parameter.requires_grad)
+    if trainable_parameters == 0:
+        raise ValueError(f"trainable scope {scope!r} leaves no trainable parameters")
+    return {
+        "trainable_scope": scope,
+        "total_parameters": total_parameters,
+        "trainable_parameters": trainable_parameters,
+        "trainable_tensors": trainable_tensors,
+    }
 
 
 @torch.inference_mode()
@@ -238,6 +273,74 @@ def _generate_i2t_sampler_states(
     return states
 
 
+def _masked_kl_divergence(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    valid_token_mask: torch.Tensor,
+    *,
+    temperature: float,
+) -> torch.Tensor:
+    if temperature <= 0.0:
+        raise ValueError(f"anchor temperature must be > 0, got {temperature}")
+    valid_token_mask = valid_token_mask.to(device=student_logits.device, dtype=torch.bool)
+    losses = []
+    for position in range(student_logits.shape[1]):
+        valid = valid_token_mask[position]
+        student_position = student_logits[:, position, valid] / float(temperature)
+        teacher_position = teacher_logits[:, position, valid] / float(temperature)
+        losses.append(
+            F.kl_div(
+                F.log_softmax(student_position, dim=-1),
+                F.softmax(teacher_position, dim=-1),
+                reduction="batchmean",
+            )
+            * float(temperature) ** 2
+        )
+    return torch.stack(losses).mean()
+
+
+def _anchor_kl_loss(
+    *,
+    teacher: UnifiedDenoiser,
+    student: UnifiedDenoiser,
+    config: ProjectConfig,
+    x1: torch.Tensor,
+    progress: torch.Tensor,
+    layout: TaskLayout,
+    modality_ids: torch.Tensor,
+    schedule_tables: dict,
+    valid_token_mask: torch.Tensor,
+    anchor_tasks: tuple[str, ...],
+    temperature: float,
+) -> torch.Tensor:
+    if not anchor_tasks:
+        return torch.zeros((), device=x1.device)
+    losses = []
+    for task in anchor_tasks:
+        if task not in {"joint", "text_to_image", "image_to_text"}:
+            raise ValueError(f"unsupported anchor task {task!r}")
+        t_pos = _task_time_schedule(config, progress, modality_ids, schedule_tables, task)
+        t_pos = condition_clean_timesteps(
+            t_pos,
+            layout.image_seq_len,
+            condition_image=task == "image_to_text",
+            condition_text=task == "text_to_image",
+        )
+        z_t = _build_zt(x1, t_pos, layout, task, valid_token_mask)
+        with torch.no_grad():
+            teacher_logits = teacher(z_t, t_pos, modality_ids)
+        student_logits = student(z_t, t_pos, modality_ids)
+        losses.append(
+            _masked_kl_divergence(
+                student_logits=student_logits,
+                teacher_logits=teacher_logits,
+                valid_token_mask=valid_token_mask,
+                temperature=temperature,
+            )
+        )
+    return torch.stack(losses).mean()
+
+
 def _true_label_sequence_scores(
     text_logits: torch.Tensor,
     text_targets: torch.Tensor,
@@ -341,6 +444,10 @@ def run_i2t_sampler_state_ft(
     contrast_weight: float = 0.0,
     contrast_margin: float = 1.0,
     sequence_weight: float | None = None,
+    anchor_weight: float = 0.0,
+    anchor_tasks: tuple[str, ...] | None = None,
+    anchor_temperature: float = 1.0,
+    trainable_scope: str = "all",
     save_every: int | None = None,
     run_context: RunContext | None = None,
 ) -> dict:
@@ -352,6 +459,14 @@ def run_i2t_sampler_state_ft(
         raise ValueError(f"contrast_weight must be >= 0, got {contrast_weight}")
     if contrast_margin <= 0.0:
         raise ValueError(f"contrast_margin must be > 0, got {contrast_margin}")
+    if anchor_weight < 0.0:
+        raise ValueError(f"anchor_weight must be >= 0, got {anchor_weight}")
+    if anchor_temperature <= 0.0:
+        raise ValueError(f"anchor_temperature must be > 0, got {anchor_temperature}")
+    effective_anchor_tasks = DEFAULT_ANCHOR_TASKS if anchor_tasks is None else anchor_tasks
+    for task in effective_anchor_tasks:
+        if task not in {"joint", "text_to_image", "image_to_text"}:
+            raise ValueError(f"unsupported anchor task {task!r}")
     effective_progress_values = DEFAULT_SAMPLER_STATE_PROGRESS if progress_values is None else progress_values
     if not effective_progress_values:
         raise ValueError("progress_values must contain at least one value")
@@ -370,6 +485,7 @@ def run_i2t_sampler_state_ft(
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
     student.train()
+    trainable_stats = _set_trainable_scope(student, trainable_scope)
     text_metadata = metadata_from_state(tokenizer_state)
     schedule_tables = build_schedule_tables(
         config,
@@ -384,11 +500,12 @@ def run_i2t_sampler_state_ft(
     )
     train_iter = iter(loader)
     optimizer = torch.optim.AdamW(
-        student.parameters(),
+        [parameter for parameter in student.parameters() if parameter.requires_grad],
         lr=config.train.lr if lr is None else float(lr),
         weight_decay=config.train.weight_decay,
     )
     modality_ids = layout.position_modalities().to(device)
+    valid_token_mask = layout.position_valid_token_mask().to(device)
     shifted_label_tokens = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size).to(device)
     effective_sequence_weight = config.train.text_sequence_weight if sequence_weight is None else float(sequence_weight)
     effective_save_every = config.train.save_every if save_every is None else int(save_every)
@@ -421,7 +538,7 @@ def run_i2t_sampler_state_ft(
             )
 
             loss = torch.zeros((), device=device)
-            part_sums = {"text_loss": 0.0, "sequence_loss": 0.0, "contrast_loss": 0.0}
+            part_sums = {"text_loss": 0.0, "sequence_loss": 0.0, "contrast_loss": 0.0, "anchor_loss": 0.0}
             for state in states:
                 state_loss, parts, true_text_logits = _sampler_state_loss(
                     student=student,
@@ -444,7 +561,10 @@ def run_i2t_sampler_state_ft(
                         layout.vocab_size,
                     )
                     shuffled_state[:, layout.image_slice] = shuffled_image_state
-                    shuffled_logits = mask_logits(student(shuffled_state, state.t_pos, modality_ids), layout=layout)
+                    shuffled_logits = mask_logits(
+                        student(shuffled_state, state.t_pos.clone(), modality_ids),
+                        layout=layout,
+                    )
                     contrast_loss = _shuffled_image_contrast_loss(
                         true_text_logits=true_text_logits,
                         shuffled_text_logits=shuffled_logits[:, layout.text_slice],
@@ -457,6 +577,24 @@ def run_i2t_sampler_state_ft(
                     loss = loss + float(contrast_weight) * contrast_loss
                     part_sums["contrast_loss"] += float(contrast_loss.item())
             loss = loss / float(len(states))
+            if anchor_weight > 0.0:
+                anchor_progress = torch.rand(image_tokens.shape[0], device=device)
+                x1 = build_flm_clean_state(targets, layout.vocab_size).to(device)
+                anchor_loss = _anchor_kl_loss(
+                    teacher=teacher,
+                    student=student,
+                    config=config,
+                    x1=x1,
+                    progress=anchor_progress,
+                    layout=layout,
+                    modality_ids=modality_ids,
+                    schedule_tables=schedule_tables,
+                    valid_token_mask=valid_token_mask,
+                    anchor_tasks=tuple(effective_anchor_tasks),
+                    temperature=float(anchor_temperature),
+                )
+                loss = loss + float(anchor_weight) * anchor_loss
+                part_sums["anchor_loss"] = float(anchor_loss.item())
 
             optimizer.zero_grad()
             loss.backward()
@@ -472,9 +610,14 @@ def run_i2t_sampler_state_ft(
                         "progress_values": [float(value) for value in effective_progress_values],
                         "contrast_weight": float(contrast_weight),
                         "contrast_margin": float(contrast_margin),
+                        "anchor_weight": float(anchor_weight),
+                        "anchor_tasks": list(effective_anchor_tasks),
+                        "anchor_temperature": float(anchor_temperature),
+                        "trainable_scope": trainable_scope,
                         "text_loss": part_sums["text_loss"] / float(len(states)),
                         "sequence_loss": part_sums["sequence_loss"] / float(len(states)),
                         "contrast_loss": part_sums["contrast_loss"] / float(len(states)),
+                        "anchor_loss": part_sums["anchor_loss"],
                     },
                 )
             if step % effective_save_every == 0 or step == steps:
@@ -494,6 +637,10 @@ def run_i2t_sampler_state_ft(
             "contrast_weight": float(contrast_weight),
             "contrast_margin": float(contrast_margin),
             "sequence_weight": float(effective_sequence_weight),
+            "anchor_weight": float(anchor_weight),
+            "anchor_tasks": list(effective_anchor_tasks),
+            "anchor_temperature": float(anchor_temperature),
+            **trainable_stats,
             "source_checkpoint": str(_source_checkpoint_path(config)),
             "final_checkpoint": str(latest_checkpoint_path(config, "stage2")),
         }

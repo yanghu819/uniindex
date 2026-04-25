@@ -74,6 +74,14 @@ def _parser() -> argparse.ArgumentParser:
     probe_i2t_sampler_state_ft.add_argument("--contrast-weight", type=float, default=0.0)
     probe_i2t_sampler_state_ft.add_argument("--contrast-margin", type=float, default=1.0)
     probe_i2t_sampler_state_ft.add_argument("--sequence-weight", type=float)
+    probe_i2t_sampler_state_ft.add_argument("--anchor-weight", type=float, default=0.0)
+    probe_i2t_sampler_state_ft.add_argument("--anchor-task", action="append", dest="anchor_tasks")
+    probe_i2t_sampler_state_ft.add_argument("--anchor-temperature", type=float, default=1.0)
+    probe_i2t_sampler_state_ft.add_argument(
+        "--trainable-scope",
+        choices=["all", "head", "last_block", "last_two_blocks"],
+        default="all",
+    )
     probe_i2t_sampler_state_ft.add_argument("--save-every", type=int)
 
     visualize = subparsers.add_parser("visualize")
@@ -249,6 +257,10 @@ def _run_probe_i2t_sampler_state_ft(
     contrast_weight: float,
     contrast_margin: float,
     sequence_weight: float | None,
+    anchor_weight: float,
+    anchor_tasks: list[str] | None,
+    anchor_temperature: float,
+    trainable_scope: str,
     save_every: int | None,
 ) -> int:
     config = load_config(config_path)
@@ -263,6 +275,10 @@ def _run_probe_i2t_sampler_state_ft(
             contrast_weight=contrast_weight,
             contrast_margin=contrast_margin,
             sequence_weight=sequence_weight,
+            anchor_weight=anchor_weight,
+            anchor_tasks=tuple(anchor_tasks) if anchor_tasks else None,
+            anchor_temperature=anchor_temperature,
+            trainable_scope=trainable_scope,
             save_every=save_every,
             run_context=run_context,
         )
@@ -375,6 +391,10 @@ def main(argv: list[str] | None = None) -> int:
             contrast_weight=args.contrast_weight,
             contrast_margin=args.contrast_margin,
             sequence_weight=args.sequence_weight,
+            anchor_weight=args.anchor_weight,
+            anchor_tasks=args.anchor_tasks,
+            anchor_temperature=args.anchor_temperature,
+            trainable_scope=args.trainable_scope,
             save_every=args.save_every,
         )
     if args.command == "visualize":
