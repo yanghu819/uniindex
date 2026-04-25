@@ -22,6 +22,24 @@ def test_unified_denoiser_shape():
     assert logits.shape == (3, 17, 74)
 
 
+def test_unified_denoiser_forward_features_shape():
+    model = UnifiedDenoiser(
+        input_dim=32,
+        seq_len=17,
+        vocab_size=74,
+        d_model=64,
+        n_heads=4,
+        n_layers=2,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    z_t = torch.randn(3, 17, 32)
+    t = torch.rand(3)
+    modality_ids = torch.tensor([0] * 16 + [1])
+    features = model.forward_features(z_t, t, modality_ids)
+    assert features.shape == (3, 17, 64)
+
+
 def test_unified_denoiser_accepts_positionwise_time():
     model = UnifiedDenoiser(
         input_dim=32,

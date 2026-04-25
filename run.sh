@@ -231,6 +231,23 @@ case "$MODE" in
     done
     run_cli probe-i2t-sampler-state-ft --config "$CONFIG" "${ARGS[@]}"
     ;;
+  probe-i2t-llm-decoder)
+    CONFIG="configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-i2t-llm-decoder --config "$CONFIG" "${ARGS[@]}"
+    ;;
   visualize)
     CONFIG="configs/default.yaml"
     while [[ $# -gt 0 ]]; do

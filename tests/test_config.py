@@ -41,6 +41,9 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_logit_normal_scale == 1.0
     assert config.eval.isolate_sampling_rng is False
     assert config.eval.sampling_seed is None
+    assert config.i2t_llm.enabled is False
+    assert config.i2t_llm.model_name == "distilgpt2"
+    assert config.i2t_llm.prefix_tokens == 8
 
 
 def test_load_understanding_config():
@@ -109,6 +112,22 @@ def test_load_candidate_projection_config():
     assert config.sampling.image_to_text_projection_progresses is None
     assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_candidate_proj_p050"
+
+
+def test_load_i2t_llm_decoder_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml")
+    assert config.i2t_llm.enabled is True
+    assert config.i2t_llm.model_name == "distilgpt2"
+    assert config.i2t_llm.cache_dir == ".cache/huggingface"
+    assert config.i2t_llm.prefix_tokens == 8
+    assert config.i2t_llm.adapter_hidden_dim == 512
+    assert config.i2t_llm.source_checkpoint == "models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt"
+    assert config.i2t_llm.train_steps == 200
+    assert config.i2t_llm.lr == 0.0001
+    assert config.i2t_llm.prompt == "Digit:"
+    assert config.i2t_llm.feature_progress == 0.5
+    assert config.i2t_llm.max_new_tokens == 4
+    assert config.paths.runs_dir.name == "i2t_llm_decoder"
 
 
 def test_load_minflm_config():

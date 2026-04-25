@@ -3,10 +3,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="configs/default.yaml"
+DOWNLOAD_I2T_LLM=0
 
-if [[ "${1:-}" == "--config" ]]; then
-  CONFIG="$2"
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config)
+      CONFIG="$2"
+      shift 2
+      ;;
+    --i2t-llm)
+      DOWNLOAD_I2T_LLM=1
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
 
 export UV_CACHE_DIR="$ROOT/.cache/uv"
 export UV_PYTHON_INSTALL_DIR="$ROOT/.cache/uv-python"
@@ -22,6 +35,7 @@ export XDG_CACHE_HOME="$ROOT/.cache/xdg"
 export MPLCONFIGDIR="$ROOT/.cache/matplotlib"
 export PATH="$ROOT/.cache/uv-bin:$PATH"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
 if ! command -v uv >/dev/null 2>&1; then
   export UV_UNMANAGED_INSTALL="$ROOT/.cache/uv-bin"
@@ -32,3 +46,7 @@ fi
 mkdir -p "$ROOT/.cache" "$UV_PYTHON_INSTALL_DIR" "$PIP_CACHE_DIR" "$ROOT/data" "$ROOT/artifacts" "$ROOT/models" "$ROOT/runs" "$ROOT/logs"
 
 "$ROOT/.venv/bin/python" -m uniindex.cli prepare --config "$CONFIG"
+
+if [[ "$DOWNLOAD_I2T_LLM" == "1" ]]; then
+  "$ROOT/.venv/bin/python" -m uniindex.cli download-i2t-llm --config "$CONFIG"
+fi

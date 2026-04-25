@@ -138,6 +138,21 @@ class EvalConfig:
 
 
 @dataclass(frozen=True)
+class I2TLLMConfig:
+    enabled: bool = False
+    model_name: str = "distilgpt2"
+    cache_dir: str = ".cache/huggingface"
+    prefix_tokens: int = 8
+    adapter_hidden_dim: int = 512
+    source_checkpoint: str | None = None
+    train_steps: int = 200
+    lr: float = 1e-4
+    prompt: str = "Digit:"
+    feature_progress: float = 0.5
+    max_new_tokens: int = 4
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     name: str
     repo_root: Path
@@ -151,6 +166,7 @@ class ProjectConfig:
     sampling: SamplingConfig
     schedule: ScheduleConfig
     eval: EvalConfig
+    i2t_llm: I2TLLMConfig
 
 
 def _resolve(base: Path, raw: str) -> Path:
@@ -331,6 +347,52 @@ def _normalize_schedule_config(raw: dict[str, Any]) -> dict[str, Any]:
     return dict(raw.get("schedule", {}))
 
 
+def _normalize_i2t_llm_config(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(raw.get("i2t_llm", {}))
+    normalized.setdefault("enabled", False)
+    normalized.setdefault("model_name", "distilgpt2")
+    normalized.setdefault("cache_dir", ".cache/huggingface")
+    normalized.setdefault("prefix_tokens", 8)
+    normalized.setdefault("adapter_hidden_dim", 512)
+    normalized.setdefault("source_checkpoint", None)
+    normalized.setdefault("train_steps", 200)
+    normalized.setdefault("lr", 1e-4)
+    normalized.setdefault("prompt", "Digit:")
+    normalized.setdefault("feature_progress", 0.5)
+    normalized.setdefault("max_new_tokens", 4)
+
+    prefix_tokens = int(normalized["prefix_tokens"])
+    if prefix_tokens < 1:
+        raise ValueError(f"i2t_llm.prefix_tokens must be >= 1, got {prefix_tokens}")
+    normalized["prefix_tokens"] = prefix_tokens
+
+    adapter_hidden_dim = int(normalized["adapter_hidden_dim"])
+    if adapter_hidden_dim < 1:
+        raise ValueError(f"i2t_llm.adapter_hidden_dim must be >= 1, got {adapter_hidden_dim}")
+    normalized["adapter_hidden_dim"] = adapter_hidden_dim
+
+    train_steps = int(normalized["train_steps"])
+    if train_steps < 1:
+        raise ValueError(f"i2t_llm.train_steps must be >= 1, got {train_steps}")
+    normalized["train_steps"] = train_steps
+
+    lr = float(normalized["lr"])
+    if lr <= 0.0:
+        raise ValueError(f"i2t_llm.lr must be > 0, got {lr}")
+    normalized["lr"] = lr
+
+    feature_progress = float(normalized["feature_progress"])
+    if not 0.0 <= feature_progress <= 1.0:
+        raise ValueError(f"i2t_llm.feature_progress must be in [0, 1], got {feature_progress}")
+    normalized["feature_progress"] = feature_progress
+
+    max_new_tokens = int(normalized["max_new_tokens"])
+    if max_new_tokens < 1:
+        raise ValueError(f"i2t_llm.max_new_tokens must be >= 1, got {max_new_tokens}")
+    normalized["max_new_tokens"] = max_new_tokens
+    return normalized
+
+
 def load_config(path: str | Path) -> ProjectConfig:
     config_path = Path(path).resolve()
     with config_path.open("r", encoding="utf-8") as handle:
@@ -358,6 +420,7 @@ def load_config(path: str | Path) -> ProjectConfig:
         sampling=SamplingConfig(**_normalize_sampling_config(raw["sampling"])),
         schedule=ScheduleConfig(**_normalize_schedule_config(raw)),
         eval=EvalConfig(**raw["eval"]),
+        i2t_llm=I2TLLMConfig(**_normalize_i2t_llm_config(raw)),
     )
 
 
@@ -375,4 +438,5 @@ def as_dict(config: ProjectConfig) -> dict[str, Any]:
         "sampling": dict(config.sampling.__dict__),
         "schedule": dict(config.schedule.__dict__),
         "eval": dict(config.eval.__dict__),
+        "i2t_llm": dict(config.i2t_llm.__dict__),
     }

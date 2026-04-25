@@ -60,7 +60,7 @@ class UnifiedDenoiser(nn.Module):
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
 
-    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+    def forward_features(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
         batch, seq_len, _ = z_t.shape
         if seq_len != self.seq_len:
             raise ValueError(f"expected sequence length {self.seq_len}, got {seq_len}")
@@ -76,5 +76,7 @@ class UnifiedDenoiser(nn.Module):
         else:
             raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
         h = self.transformer(h)
-        h = self.norm(h)
-        return self.head(h)
+        return self.norm(h)
+
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        return self.head(self.forward_features(z_t, t, modality_ids))
