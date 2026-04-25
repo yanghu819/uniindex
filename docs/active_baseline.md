@@ -491,9 +491,45 @@
 - Run control note: the contrast case was stopped after eval metrics because the decision guards had already failed and the runner was spending non-informative time in Hugging Face remote-code retries before contrast diagnostics.
 - Environment note: eval and diagnostics still attempted Hugging Face remote-code HEAD/download for `BAAI/Emu3.5-VisionTokenizer`. Pinning or vendoring that tokenizer code and forcing offline mode remains required before longer unattended experiments.
 
+## Recent fallback-free FLM ablation
+
+- Run timestamp: `2026-04-25T06:16:20Z` (`2026-04-25 14:16:20 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/clean_flm_ablation/20260425T061620Z-clean-flm-ablation/summary.json`
+- Code state: remote detached checkout `b951633`.
+- New committed configs:
+  - `configs/flm_joint_work_fullvocab_tsw075_minflm.yaml`
+  - `configs/flm_joint_work_fullvocab_tsw075_no_i2t_projection.yaml`
+- `minflm` removes the active sampler-side fallback stack: no midpoint projection, `integrator = scheduled_euler`, and `final_decode = last_endpoint`.
+- `no_i2t_projection` keeps the active sampler shell but removes `candidate_renoise`, isolating the projection effect without changing t2i/unconditional random streams.
+- Validation:
+  - `.venv/bin/python -m pytest tests/test_config.py -q` -> `14 passed`
+  - `.venv/bin/python -m pytest -q` -> `75 passed`
+- `minflm` metrics:
+  - `image_to_text_exact_match = 0.12109375`
+  - `image_to_text_token_accuracy = 0.3362273086029992`
+  - `image_to_text_label_accuracy_constrained = 0.1484375`
+  - `text_to_image_accuracy = 0.875`
+  - `unconditional_consistency = 0.640625`
+- `no_i2t_projection` metrics:
+  - `image_to_text_exact_match = 0.1328125`
+  - `image_to_text_token_accuracy = 0.345698500394633`
+  - `image_to_text_label_accuracy_constrained = 0.1484375`
+  - `text_to_image_accuracy = 0.95703125`
+  - `unconditional_consistency = 0.859375`
+- Active RNG-isolated reference with `candidate_renoise @ 0.5`: exact `0.171875`, label `0.1953125`, token `0.39779005524861877`, t2i `0.95703125`, uncond `0.859375`.
+- 32-sample understanding diagnostic for `no_i2t_projection`:
+  - true-image final: exact `0.125`, label `0.1875`, token `0.391025641025641`, mean true-label margin `-17.700584411621094`
+  - shuffled-image final: exact `0.09375`, label `0.125`, token `0.28846153846153844`, mean true-label margin `-25.122175216674805`
+  - random-image-token final: exact `0.125`, label `0.15625`, token `0.3525641025641026`, mean true-label margin `-18.01748275756836`
+  - failure counts: `exact_correct = 4`, `label_correct_text_wrong = 2`, `label_wrong = 20`, `image_insensitive = 6`
+- Decision: do not promote fallback-free configs. Use them as clean measurement baselines. Removing `candidate_renoise` exposes the raw i2t trajectory: t2i/uncond stay healthy, but i2t exact/label/token fall well below the active reference. Pure `minflm` is worse and also harms t2i/unconditional, so the paper-style sampler is not the immediate rescue path for this checkpoint.
+- Interpretation: the active fallback is not the root cause; it is a small crutch over a weak raw i2t trajectory. The core failure remains image-conditioned text generation on the free sampler path: the final true-image margin is still strongly negative, and random/shuffled controls are too close to true-image outcomes.
+- Lesson: future training changes should be evaluated first on `no_i2t_projection` to measure raw understanding. Only after raw i2t improves should `candidate_renoise @ 0.5` be re-enabled as a convenience sampler, not as proof of understanding.
+- Environment note: even with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`, the logs still print cached Emu3.5 dynamic-module "downloaded" warnings. Pin/vendor remains necessary.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should preserve the active generator while adding binding pressure: freeze most of the model or add active-checkpoint KL/anchor regularization, then re-run the same short sampler-state binding guard. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should preserve the active generator while adding binding pressure: freeze most of the model or add active-checkpoint KL/anchor regularization, then evaluate first on `configs/flm_joint_work_fullvocab_tsw075_no_i2t_projection.yaml` to measure raw trajectory understanding before re-enabling `candidate_renoise`. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
