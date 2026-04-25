@@ -62,10 +62,30 @@
 - Use `./run.sh prepare|stage1|stage2|eval --config ...`
 - Use `./run.sh diagnose-i2t-image-dependence --config ... --progress ...` to compare true-image, shuffled-image, and random-image-token controls before promoting another i2t training or sampler change.
 - Use `./run.sh diagnose-i2t-sampler-trajectory --config ... --progress ...` to test whether the free i2t sampling state still responds to true-image controls at intermediate sampler steps.
+- Use `./run.sh probe-i2t-llm-decoder --config configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml --steps 200 --eval-every 50` to test the pretrained small-LLM i2t decoder path.
+- Use `./down.sh --config configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml --i2t-llm` to download `distilgpt2` into the repo-local Hugging Face cache before remote runs.
 - Use `./run.sh sweep-i2t-power` for the 2/4/6 short sweep over `image_to_text_text_time_power`
 - Use `./run.sh sweep-i2t-repeats` for the 4/6/8 short sweep over `stage2_image_to_text_repeats`
 - `run.sh` exports `PYTHONPATH=$ROOT/src`, so every worktree resolves the local code instead of an unrelated editable install
 - `configs_generated/` is runtime-only and should stay untracked
+
+## Current i2t LLM decoder probe
+
+- Local implementation timestamp: `2026-04-25`.
+- Code state: `6503a546ad60732326098f9406f8fb6efcd7db9f`.
+- Config: `configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml`.
+- Purpose: test a paradigm shift for image-to-text understanding by freezing the active UniIndex checkpoint and `distilgpt2`, then training only an image-to-LLM soft prefix adapter.
+- This does not alter the active FLM t2i/unconditional path, the active sampler, or the active checkpoint.
+- Metrics to trust first:
+  - true-image candidate accuracy over the ten canonical label strings
+  - shuffled-image candidate accuracy as the binding control
+  - free-generation exact match as a secondary check
+- Local validation:
+  - `ruff check .` passes
+  - `.venv/bin/python -m pytest -q` passes with `83 passed`
+  - `distilgpt2` downloads to `.cache/huggingface`
+  - local LLM asset smoke returns prefix shape `(2, 8, 768)`, candidate score shape `(2, 10)`, and finite scores
+- Lesson: treat free text generation as a downstream display problem, not the primary understanding metric. The first useful signal is whether a frozen LLM plus a trained image prefix can rank the correct label above shuffled-image controls.
 
 ## Recent text-weight sweep
 
