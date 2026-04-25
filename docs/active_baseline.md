@@ -553,9 +553,50 @@
 - Lesson: this result is more informative than a plain failure. The model can be pushed toward image-conditioned class evidence, but the current objective does it by corrupting the sequence decoder/generator. `anchor_weight = 1.0` on final-block sampler-state FT is too destructive; future binding probes need an explicit early-abort gate on raw exact/t2i/uncond and should either use a smaller/lower-rank write surface or change the target so label binding cannot win while text sequence quality collapses.
 - Environment note: eval and diagnostics again printed Emu3.5 dynamic-module "downloaded" warnings. Pin/vendor remains required before long unattended runs.
 
+## Recent head-only sampler-state sequence guard
+
+- Run timestamp: `2026-04-25T10:40:32Z` (`2026-04-25 18:40:32 CST`)
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_state_seq_guard/20260425T104032Z-seq-guard-head-mini-offline/summary.json`
+- Follow-up summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/sampler_state_seq_guard/20260425T105524Z-seq-guard-head-s50-offline/summary.json`
+- Code state: remote detached checkout `907ff94f9b5f4725c7bd537fba6ad5157f2c2088`.
+- Method: use the raw `no_i2t_projection` guard, train only `norm` + `head` on sampler-state i2t sequence CE, and keep the active checkpoint as the source. This tests whether a very small write surface can improve real free i2t without corrupting t2i/unconditional.
+- Run control:
+  - First attempt failed before training because the generated runner had a Python quoting bug.
+  - Second attempt completed the first 25-step train but eval hit Hugging Face online HEAD retries; it was stopped and marked `stopped_eval_hf_online_retry`.
+  - Final run exported `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, and all cache roots under the repo path before train/eval.
+- Raw guard reference (`no_i2t_projection`): exact `0.1328125`, token `0.345698500394633`, label `0.1484375`, t2i `0.95703125`, uncond `0.859375`.
+- `head_seq_w150_a000_s25` metrics:
+  - `image_to_text_exact_match = 0.140625`
+  - `image_to_text_token_accuracy = 0.3425414364640884`
+  - `image_to_text_label_accuracy_constrained = 0.15234375`
+  - `text_to_image_accuracy = 0.96875`
+  - `unconditional_consistency = 0.875`
+- `head_seq_w150_a010_s25` metrics:
+  - `image_to_text_exact_match = 0.13671875`
+  - `image_to_text_token_accuracy = 0.3393843725335438`
+  - `image_to_text_label_accuracy_constrained = 0.15625`
+  - `text_to_image_accuracy = 0.96484375`
+  - `unconditional_consistency = 0.890625`
+- Decision after 25 steps: weak positive signal, but small. Pure head sequence CE is better for exact; weak anchor helps label/uncond slightly but hurts token. Extend only the pure head sequence case to 50 steps.
+- `head_seq_w150_a000_s50` metrics:
+  - `image_to_text_exact_match = 0.12890625`
+  - `image_to_text_token_accuracy = 0.3322809786898185`
+  - `image_to_text_label_accuracy_constrained = 0.14453125`
+  - `text_to_image_accuracy = 0.95703125`
+  - `unconditional_consistency = 0.84375`
+- 50-step understanding diagnostic:
+  - final true-image sampler: exact `0.1875`, label `0.1875`, token `0.3974358974358974`, mean true-label margin `-14.1028413772583`
+  - final shuffled-image sampler: exact `0.09375`, label `0.09375`, token `0.23717948717948717`, mean true-label margin `-22.013517379760742`
+  - final random-image-token sampler: exact `0.15625`, label `0.15625`, token `0.358974358974359`, mean true-label margin `-14.624062538146973`
+  - failure counts: `label_wrong = 18`, `exact_correct = 6`, `image_insensitive = 8`
+  - visualization paths: `sample_cards.png`, `confusion_matrix.png`, and `train_vs_sampler_margins.png` under `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/fullvocab_long_tsw075_i2tr06_ssb_seq_guard_offline_head_seq_w150_a000_s50/20260425T110212Z-diagnose-i2t-understanding/i2t_understanding/`
+- Decision: do not promote and do not keep increasing steps. The 25-step result is a real but tiny raw free-i2t signal; 50 steps loses that gain while preserving t2i/uncond only barely.
+- Lesson: the useful window is short and head-local. This supports "small write surface + early stop" over full-model or final-block FT, but the signal is too small and unstable to be an algorithmic win. Next probes should search around the early window (`10/20/30` or `15/25/35` steps) and optimize exact/token directly; do not add more anchor or longer training until the raw exact gain repeats.
+- Environment note: even with offline flags, Transformers still prints cached dynamic-module "downloaded" warnings. It no longer blocks on network in this run, but pin/vendor remains required.
+
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should keep the raw `no_i2t_projection` guard and add a cheap early-abort criterion: after 25-50 steps, stop unless raw i2t exact, t2i, and uncond all remain near guard. The next objective should prevent "label-only wins"; candidate directions are label-conditioned sequence CE with stricter text exact gating, lower-rank/adaptor-only binding, or an explicit image/text contrast term applied before the final text decoder rather than updating the shared generator path. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should keep the raw `no_i2t_projection` guard and repeat only the early head-local signal: sweep `10/20/30` or `15/25/35` steps with sequence CE, then stop unless exact and token both improve while t2i/uncond remain near guard. The objective should prevent "label-only wins"; candidate directions are exact/token-focused sequence gating, lower-rank/adaptor-only binding, or an explicit image/text contrast term applied before the final text decoder rather than updating the shared generator path. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
