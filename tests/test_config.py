@@ -111,6 +111,29 @@ def test_load_candidate_projection_config():
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_candidate_proj_p050"
 
 
+def test_load_minflm_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.integrator == "scheduled_euler"
+    assert config.sampling.final_decode == "last_endpoint"
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 420700
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_minflm"
+
+
+def test_load_no_i2t_projection_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_no_i2t_projection.yaml")
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.integrator == "legacy_progress_euler"
+    assert config.sampling.final_decode == "final_model_call"
+    assert config.sampling.final_model_progress == 0.95
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 420700
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_no_i2t_projection"
+
+
 def test_load_projection_progresses_config(tmp_path):
     raw = yaml.safe_load(Path("configs/smoke.yaml").read_text(encoding="utf-8"))
     raw["sampling"]["image_to_text_projection"] = "candidate_renoise"
