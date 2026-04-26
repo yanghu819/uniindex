@@ -42,7 +42,6 @@ def _make_grid(images: list[Image.Image], captions: list[str], cols: int = 4) ->
     return canvas
 
 
-@torch.inference_mode()
 def probe_siglipvq_reconstruction(
     *,
     config: ProjectConfig,
@@ -78,8 +77,9 @@ def probe_siglipvq_reconstruction(
     batch = next(iter(loader))
     image_tokens = batch["image_tokens"][:sample_count].to(device)
     labels = batch["label"][:sample_count].to(device)
-    decoded = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
-    predictions = classify_images(classifier, decoded, config.dataset.name)
+    with torch.inference_mode():
+        decoded = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
+        predictions = classify_images(classifier, decoded, config.dataset.name)
     accuracy = float(predictions.eq(labels).float().mean().item())
     label_to_string = {value: text for value, text in zip(text_metadata.label_values, text_metadata.label_strings)}
     captions = [
