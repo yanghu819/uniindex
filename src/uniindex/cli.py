@@ -23,6 +23,7 @@ from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
 from .label_feature_probe import run_label_feature_probe
 from .tokenizer import download_siglip_vq_assets
+from .vq_text_decoder import run_vq_text_decoder_probe
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -103,6 +104,16 @@ def _parser() -> argparse.ArgumentParser:
     probe_label_features.add_argument("--steps", type=int, default=200)
     probe_label_features.add_argument("--eval-every", type=int, default=50)
     probe_label_features.add_argument("--vq-only", action="store_true")
+
+    probe_vq_text_decoder = subparsers.add_parser("probe-vq-text-decoder")
+    probe_vq_text_decoder.add_argument("--config", required=True)
+    probe_vq_text_decoder.add_argument("--steps", type=int, default=200)
+    probe_vq_text_decoder.add_argument("--eval-every", type=int, default=50)
+    probe_vq_text_decoder.add_argument("--d-model", type=int)
+    probe_vq_text_decoder.add_argument("--n-layers", type=int, default=2)
+    probe_vq_text_decoder.add_argument("--lr", type=float)
+    probe_vq_text_decoder.add_argument("--contrast-weight", type=float, default=0.0)
+    probe_vq_text_decoder.add_argument("--contrast-margin", type=float, default=1.0)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -367,6 +378,39 @@ def _run_probe_label_features(*, config_path: str, steps: int, eval_every: int, 
     return 0
 
 
+def _run_probe_vq_text_decoder(
+    *,
+    config_path: str,
+    steps: int,
+    eval_every: int,
+    d_model: int | None,
+    n_layers: int,
+    lr: float | None,
+    contrast_weight: float,
+    contrast_margin: float,
+) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-vq-text-decoder")
+    try:
+        run_vq_text_decoder_probe(
+            config=config,
+            steps=steps,
+            eval_every=eval_every,
+            d_model=d_model,
+            n_layers=n_layers,
+            lr=lr,
+            contrast_weight=contrast_weight,
+            contrast_margin=contrast_margin,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -491,6 +535,17 @@ def main(argv: list[str] | None = None) -> int:
             steps=args.steps,
             eval_every=args.eval_every,
             vq_only=args.vq_only,
+        )
+    if args.command == "probe-vq-text-decoder":
+        return _run_probe_vq_text_decoder(
+            config_path=args.config,
+            steps=args.steps,
+            eval_every=args.eval_every,
+            d_model=args.d_model,
+            n_layers=args.n_layers,
+            lr=args.lr,
+            contrast_weight=args.contrast_weight,
+            contrast_margin=args.contrast_margin,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)
