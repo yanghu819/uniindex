@@ -251,19 +251,12 @@ class SiglipVQVisionTokenizer(BaseVisionTokenizer):
 
     @torch.inference_mode()
     def encode_pil_batch(self, images: Sequence[Image.Image]) -> tuple[torch.Tensor, tuple[int, int]]:
-        rows = []
-        grid_shape: tuple[int, int] | None = None
-        for image in images:
-            info = self.model.encode_with_info(image)
-            grid_thw = tuple(int(value) for value in info["grid_thw"])
-            current_grid = (grid_thw[1], grid_thw[2])
-            if grid_shape is None:
-                grid_shape = current_grid
-            elif grid_shape != current_grid:
-                raise ValueError(f"SigLIP-VQ batch produced mixed grid shapes: {grid_shape} and {current_grid}")
-            rows.append(torch.tensor(info["token_ids"], dtype=torch.long))
-        if grid_shape is None:
+        if not images:
             raise ValueError("encode_pil_batch requires at least one image")
+        token_rows = self.model.encode_batch(list(images))
+        rows = [torch.tensor(tokens, dtype=torch.long) for tokens in token_rows]
+        patch_size = int(self.model.image_processor.patch_size)
+        grid_shape = (self.image_size // patch_size, self.image_size // patch_size)
         return torch.stack(rows, dim=0), grid_shape
 
     def decode_token_batch(self, tokens: torch.Tensor, grid_shape: tuple[int, int]) -> torch.Tensor:
