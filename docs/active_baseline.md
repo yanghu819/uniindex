@@ -72,7 +72,7 @@
 ## Current i2t LLM decoder probe
 
 - Local implementation timestamp: `2026-04-25`.
-- Code state: `6503a546ad60732326098f9406f8fb6efcd7db9f`.
+- Latest code state: `ec9230183e4ef4ba64e6349577d41a83b113f35f`.
 - Config: `configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml`.
 - Purpose: test a paradigm shift for image-to-text understanding by freezing the active UniIndex checkpoint and `distilgpt2`, then training only an image-to-LLM soft prefix adapter.
 - This does not alter the active FLM t2i/unconditional path, the active sampler, or the active checkpoint.
@@ -86,6 +86,23 @@
   - `distilgpt2` downloads to `.cache/huggingface`
   - local LLM asset smoke returns prefix shape `(2, 8, 768)`, candidate score shape `(2, 10)`, and finite scores
 - Lesson: treat free text generation as a downstream display problem, not the primary understanding metric. The first useful signal is whether a frozen LLM plus a trained image prefix can rank the correct label above shuffled-image controls.
+
+### Remote i2t LLM decoder result
+
+- Run timestamp: `2026-04-26T05:23:20Z` (`2026-04-26 13:23:20 CST`).
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/i2t_llm_decoder/20260426T052320Z-probe-i2t-llm-decoder/summary.json`.
+- Code state: remote detached checkout `ec9230183e4ef4ba64e6349577d41a83b113f35f`.
+- Setup fallback: remote Hugging Face access timed out for `distilgpt2`, so the local model cache was copied into `/fangxueji/Projects/PG/uniindex/.cache/huggingface` and the run used `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`.
+- Bug found and fixed before the final run: `torch.inference_mode()` feature extraction produced inference tensors that could not be used for adapter backward. The fix uses `torch.no_grad()` for frozen feature extraction and adds a regression test.
+- Smoke result: 2-step remote smoke completed with `metadata.exit_status = ok`.
+- 200-step results:
+  - step `0`: candidate `0.07421875`, shuffled `0.07421875`, margin `0.0`, free generation exact `0.0`
+  - step `50`: candidate `0.26171875`, shuffled `0.1171875`, margin `0.14453125`, free generation exact `0.0`
+  - step `100`: candidate `0.28125`, shuffled `0.140625`, margin `0.140625`, free generation exact `0.0`
+  - step `150`: candidate `0.31640625`, shuffled `0.1015625`, margin `0.21484375`, free generation exact `0.0`
+  - step `200`: candidate `0.28125`, shuffled `0.12109375`, margin `0.16015625`, free generation exact `0.0`
+- Decision: do not promote this first LLM decoder probe because the final and peak candidate accuracies are below the pre-set `0.35` signal threshold. However, the true-vs-shuffled margin is real, peaking at `0.21484375`, so the image prefix is not being ignored.
+- Next LLM-side iteration should not pursue free generation yet. It should make the candidate-ranking objective stronger: keep frozen `distilgpt2`, train the prefix adapter with explicit true-vs-shuffled candidate contrast, and save/select the best eval checkpoint instead of assuming the final step is best.
 
 ## Recent text-weight sweep
 
