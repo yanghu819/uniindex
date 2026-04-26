@@ -21,6 +21,7 @@ from .i2t_repeats_sweep import run_i2t_repeats_sweep
 from .i2t_overfit import run_i2t_overfit_probe
 from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
+from .label_feature_probe import run_label_feature_probe
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -92,6 +93,11 @@ def _parser() -> argparse.ArgumentParser:
 
     download_i2t_llm = subparsers.add_parser("download-i2t-llm")
     download_i2t_llm.add_argument("--config", required=True)
+
+    probe_label_features = subparsers.add_parser("probe-label-features")
+    probe_label_features.add_argument("--config", required=True)
+    probe_label_features.add_argument("--steps", type=int, default=200)
+    probe_label_features.add_argument("--eval-every", type=int, default=50)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -329,6 +335,19 @@ def _run_download_i2t_llm(config_path: str) -> int:
     return 0
 
 
+def _run_probe_label_features(*, config_path: str, steps: int, eval_every: int) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-label-features")
+    try:
+        run_label_feature_probe(config=config, steps=steps, eval_every=eval_every, run_context=run_context)
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -445,6 +464,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "download-i2t-llm":
         return _run_download_i2t_llm(args.config)
+    if args.command == "probe-label-features":
+        return _run_probe_label_features(config_path=args.config, steps=args.steps, eval_every=args.eval_every)
     if args.command == "visualize":
         return _run_visualize(args.config)
     if args.command == "ablate-compact":

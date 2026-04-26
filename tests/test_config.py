@@ -130,6 +130,15 @@ def test_load_i2t_llm_decoder_config():
     assert config.paths.runs_dir.name == "i2t_llm_decoder"
 
 
+def test_load_label_feature_probe_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml")
+    assert config.paths.runs_dir.name == "label_feature_probe"
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.i2t_llm.enabled is False
+    assert config.i2t_llm.source_checkpoint == "models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt"
+    assert config.i2t_llm.feature_progress == 0.5
+
+
 def test_load_minflm_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
     assert config.sampling.image_to_text_projection == "none"

@@ -249,6 +249,23 @@ case "$MODE" in
     done
     run_cli probe-i2t-llm-decoder --config "$CONFIG" "${ARGS[@]}"
     ;;
+  probe-label-features)
+    CONFIG="configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-label-features --config "$CONFIG" "${ARGS[@]}"
+    ;;
   visualize)
     CONFIG="configs/default.yaml"
     while [[ $# -gt 0 ]]; do
