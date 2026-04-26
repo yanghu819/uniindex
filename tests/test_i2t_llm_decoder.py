@@ -4,6 +4,9 @@ import torch
 import torch.nn as nn
 
 from uniindex.i2t_llm_decoder import SoftPrefixAdapter, freeze_module, score_candidate_token_ids
+from uniindex.i2t_llm_decoder import extract_i2t_image_features
+from uniindex.layout import TaskLayout
+from uniindex.model import UnifiedDenoiser
 
 
 class FakeCausalLM(nn.Module):
@@ -62,3 +65,42 @@ def test_score_candidate_token_ids_prefers_matching_candidate():
 
     assert scores.shape == (2, 3)
     assert scores.argmax(dim=1).tolist() == [0, 0]
+
+
+def test_extract_i2t_image_features_returns_backward_compatible_tensor():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    denoiser = UnifiedDenoiser(
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+    )
+    config = SimpleNamespace(
+        i2t_llm=SimpleNamespace(feature_progress=0.5),
+        sampling=SimpleNamespace(
+            image_time_power=1.0,
+            text_time_power=1.0,
+            image_to_text_text_time_power=1.0,
+            image_to_text_text_time_schedule="power",
+            image_to_text_logit_normal_loc=0.0,
+            image_to_text_logit_normal_scale=1.0,
+        ),
+    )
+    features = extract_i2t_image_features(
+        denoiser=denoiser,
+        config=config,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        image_tokens=torch.tensor([[0, 1], [2, 0]]),
+    )
+    if hasattr(features, "is_inference"):
+        assert not features.is_inference()
+
+    adapter = SoftPrefixAdapter(input_dim=8, hidden_dim=8, prefix_tokens=2, output_dim=4)
+    loss = adapter(features).sum()
+    loss.backward()
+    assert any(parameter.grad is not None for parameter in adapter.parameters())

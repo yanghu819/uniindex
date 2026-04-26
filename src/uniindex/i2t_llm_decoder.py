@@ -175,7 +175,7 @@ def download_i2t_llm_assets(config: ProjectConfig) -> dict[str, str]:
     return {"model_name": config.i2t_llm.model_name, "cache_dir": str(cache_dir)}
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def extract_i2t_image_features(
     *,
     denoiser: UnifiedDenoiser,
