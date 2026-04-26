@@ -247,7 +247,8 @@ def run_label_feature_probe(
     for step in range(steps + 1):
         if step in eval_steps:
             vq_probe.eval()
-            flm_probe.eval()
+            if flm_probe is not None:
+                flm_probe.eval()
             metrics = {
                 "step": step,
                 **_evaluate(
@@ -264,7 +265,8 @@ def run_label_feature_probe(
             snapshots.append(metrics)
             append_jsonl(eval_log, metrics)
             vq_probe.train()
-            flm_probe.train()
+            if flm_probe is not None:
+                flm_probe.train()
         if step == steps:
             break
 
