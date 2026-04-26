@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
-from .data import build_loader, load_tokenizer_state, prepare_assets, split_path
+from .data import _build_raw_dataset, _prepare_image, build_loader, load_tokenizer_state, prepare_assets, split_path
 from .eval import _decode_image_tokens
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .text import metadata_from_state
@@ -40,6 +40,11 @@ def _make_grid(images: list[Image.Image], captions: list[str], cols: int = 4) ->
         draw.rectangle((x, y + cell_size, x + cell_size, y + cell_size + caption_height), fill=(248, 248, 248))
         draw.multiline_text((x + 4, y + cell_size + 4), caption, fill=(0, 0, 0), font=font, spacing=2)
     return canvas
+
+
+def _load_original_images(config: ProjectConfig, split: str, count: int) -> list[Image.Image]:
+    dataset = _build_raw_dataset(config.dataset.name, config.paths.data_dir, train=split == "train")
+    return [_prepare_image(dataset[index][0], config.tokenizer.image_size) for index in range(count)]
 
 
 def probe_siglipvq_reconstruction(
@@ -86,7 +91,15 @@ def probe_siglipvq_reconstruction(
         f"gt={label_to_string.get(int(label), str(int(label)))}\npred={label_to_string.get(int(pred), str(int(pred)))}"
         for label, pred in zip(labels.detach().cpu().tolist(), predictions.detach().cpu().tolist())
     ]
-    grid = _make_grid([_tensor_to_pil(image) for image in decoded.detach().cpu()], captions)
+    original_images = _load_original_images(config, split, int(labels.numel()))
+    decoded_images = [_tensor_to_pil(image) for image in decoded.detach().cpu()]
+    grid_images = []
+    grid_captions = []
+    for original, decoded_image, caption in zip(original_images, decoded_images, captions):
+        target = caption.splitlines()[0]
+        grid_images.extend([original, decoded_image])
+        grid_captions.extend([f"{target}\ninput", caption])
+    grid = _make_grid(grid_images, grid_captions)
     grid_path = run_context.log_path("reconstruction_grid.png")
     grid.save(grid_path)
     summary = {

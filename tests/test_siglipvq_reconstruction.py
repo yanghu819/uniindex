@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import torch
+from PIL import Image
 
 from uniindex.siglipvq_reconstruction import probe_siglipvq_reconstruction
 
@@ -37,6 +38,11 @@ def test_siglipvq_reconstruction_prepare_runs_with_grad_enabled(monkeypatch, tmp
     monkeypatch.setattr("uniindex.siglipvq_reconstruction.load_classifier", lambda path, dataset_name, device: object())
     monkeypatch.setattr("uniindex.siglipvq_reconstruction.split_path", lambda config, split: tmp_path / f"{split}.pt")
     monkeypatch.setattr(
+        "uniindex.siglipvq_reconstruction._build_raw_dataset",
+        lambda dataset_name, data_dir, train: [(Image.new("RGB", (8, 8)), 0)],
+    )
+    monkeypatch.setattr("uniindex.siglipvq_reconstruction._prepare_image", lambda image, image_size: image)
+    monkeypatch.setattr(
         "uniindex.siglipvq_reconstruction.build_loader",
         lambda path, batch_size, shuffle, num_workers: iter(
             [{"image_tokens": torch.zeros(1, 1, dtype=torch.long), "label": torch.zeros(1, dtype=torch.long)}]
@@ -52,10 +58,10 @@ def test_siglipvq_reconstruction_prepare_runs_with_grad_enabled(monkeypatch, tmp
     )
 
     config = SimpleNamespace(
-        tokenizer=SimpleNamespace(kind="siglip_vq"),
         train=SimpleNamespace(seed=1, device="cpu", gpu_index=0, num_workers=0),
         dataset=SimpleNamespace(name="mnist"),
-        paths=SimpleNamespace(models_dir=tmp_path),
+        tokenizer=SimpleNamespace(kind="siglip_vq", image_size=8),
+        paths=SimpleNamespace(data_dir=tmp_path, models_dir=tmp_path),
     )
 
     summary = probe_siglipvq_reconstruction(

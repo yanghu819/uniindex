@@ -43,7 +43,7 @@ def test_siglipvq_decode_token_batch_uses_llada_decoder(monkeypatch, tmp_path):
 
     assert decoded.shape == (1, 3, 8, 8)
     assert calls[0] == (tmp_path, "inclusionAI/LLaDA2.0-Uni", tuple(LLADA2_UNI_DECODER_ASSET_FILES))
-    assert calls[1] == ((1, 2, 3, 4), 2, 2, str(tmp_path / "snapshot"), "cpu", 1, 8, "decoder-turbo")
+    assert calls[1] == ((1, 2, 3, 4), 2, 2, str(tmp_path / "snapshot"), "cpu", 2, 8, "decoder-turbo")
 
 
 def test_decoder_asset_download_extends_encoder_assets(monkeypatch, tmp_path):

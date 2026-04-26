@@ -1,27 +1,27 @@
 project:
-  name: uniindex-siglipvq-generation-probe
+  name: uniindex-siglipvq-generation-probe-img512
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts/siglipvq_generation_probe
-  models_dir: models/siglipvq_generation_probe
-  runs_dir: runs/siglipvq_generation_probe
-  logs_dir: logs/siglipvq_generation_probe
+  artifacts_dir: artifacts/siglipvq_generation_probe_img512
+  models_dir: models/siglipvq_generation_probe_img512
+  runs_dir: runs/siglipvq_generation_probe_img512
+  logs_dir: logs/siglipvq_generation_probe_img512
   cache_dir: .cache
 
 tokenizer:
   kind: siglip_vq
   model_name: inclusionAI/LLaDA2.0-Uni
   trust_remote_code: false
-  image_size: 128
+  image_size: 512
   device: cuda
   dtype: bfloat16
   compact_vocab: false
 
 dataset:
   name: mnist
-  train_limit: 256
-  test_limit: 256
+  train_limit: 64
+  test_limit: 64
 
 text:
   kind: char
@@ -42,14 +42,14 @@ train:
   device: cuda
   gpu_index: 0
   mixed_precision: null
-  batch_size: 16
-  eval_batch_size: 16
+  batch_size: 4
+  eval_batch_size: 4
   num_workers: 4
   lr: 0.0003
   weight_decay: 0.01
   grad_clip_norm: 1.0
-  stage1_steps: 100
-  stage2_steps: 200
+  stage1_steps: 50
+  stage2_steps: 100
   log_every: 20
   save_every: 100
   joint_weight: 0.5

@@ -163,10 +163,11 @@ def test_load_siglipvq_text_decoder_probe_config():
 def test_load_siglipvq_generation_probe_config():
     config = load_config("configs/flm_joint_work_siglipvq_generation_probe.yaml")
     assert config.tokenizer.kind == "siglip_vq"
-    assert config.tokenizer.image_size == 128
-    assert config.dataset.train_limit == 256
-    assert config.dataset.test_limit == 256
-    assert config.paths.runs_dir.name == "siglipvq_generation_probe"
+    assert config.tokenizer.image_size == 512
+    assert config.dataset.train_limit == 64
+    assert config.dataset.test_limit == 64
+    assert config.train.batch_size == 4
+    assert config.paths.runs_dir.name == "siglipvq_generation_probe_img512"
     assert config.sampling.image_to_text_projection == "none"
 
 

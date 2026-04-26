@@ -450,7 +450,7 @@ class SiglipVQVisionTokenizer(BaseVisionTokenizer):
                 w=int(grid_shape[1]),
                 model_path=assets["model_dir"],
                 device=self.device,
-                resolution_multiplier=1,
+                resolution_multiplier=2,
                 num_steps=8,
                 decode_mode="decoder-turbo",
             )
