@@ -5,6 +5,7 @@ import os
 import sys
 import types
 from dataclasses import dataclass
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import Sequence
 from urllib.request import urlretrieve
@@ -169,6 +170,7 @@ def _load_llada_image_tokenizer_class(source_path: Path):
 
 def _install_torchvision_v2_functional_stub() -> None:
     functional = types.ModuleType("torchvision.transforms.v2.functional")
+    functional.__spec__ = ModuleSpec("torchvision.transforms.v2.functional", loader=None)
 
     def to_image(image):
         array = np.asarray(image, dtype=np.uint8)
@@ -187,6 +189,9 @@ def _install_torchvision_v2_functional_stub() -> None:
     torchvision_module = sys.modules.setdefault("torchvision", types.ModuleType("torchvision"))
     transforms_module = sys.modules.setdefault("torchvision.transforms", types.ModuleType("torchvision.transforms"))
     v2_module = sys.modules.setdefault("torchvision.transforms.v2", types.ModuleType("torchvision.transforms.v2"))
+    torchvision_module.__spec__ = ModuleSpec("torchvision", loader=None)
+    transforms_module.__spec__ = ModuleSpec("torchvision.transforms", loader=None)
+    v2_module.__spec__ = ModuleSpec("torchvision.transforms.v2", loader=None)
     v2_module.functional = functional
     transforms_module.v2 = v2_module
     torchvision_module.transforms = transforms_module
