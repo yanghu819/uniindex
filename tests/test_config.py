@@ -139,6 +139,17 @@ def test_load_label_feature_probe_config():
     assert config.i2t_llm.feature_progress == 0.5
 
 
+def test_load_siglipvq_label_feature_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_label_feature_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.model_name == "inclusionAI/LLaDA2.0-Uni"
+    assert config.tokenizer.image_size == 256
+    assert config.tokenizer.compact_vocab is False
+    assert config.paths.artifacts_dir.name == "siglipvq_label_feature_probe"
+    assert config.paths.runs_dir.name == "siglipvq_label_feature_probe"
+    assert config.i2t_llm.source_checkpoint is None
+
+
 def test_load_minflm_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
     assert config.sampling.image_to_text_projection == "none"

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="configs/default.yaml"
 DOWNLOAD_I2T_LLM=0
+DOWNLOAD_SIGLIP_VQ=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -13,6 +14,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --i2t-llm)
       DOWNLOAD_I2T_LLM=1
+      shift
+      ;;
+    --siglip-vq)
+      DOWNLOAD_SIGLIP_VQ=1
       shift
       ;;
     *)
@@ -50,4 +55,8 @@ mkdir -p "$ROOT/.cache" "$UV_PYTHON_INSTALL_DIR" "$PIP_CACHE_DIR" "$ROOT/data" "
 
 if [[ "$DOWNLOAD_I2T_LLM" == "1" ]]; then
   "$ROOT/.venv/bin/python" -m uniindex.cli download-i2t-llm --config "$CONFIG"
+fi
+
+if [[ "$DOWNLOAD_SIGLIP_VQ" == "1" ]]; then
+  "$ROOT/.venv/bin/python" -m uniindex.cli download-siglip-vq --config "$CONFIG"
 fi

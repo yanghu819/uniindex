@@ -9,11 +9,12 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from .config import ProjectConfig
-from .data import build_loader, split_path
+from .data import build_loader, load_tokenizer_state, split_path
 from .i2t_llm_decoder import _load_frozen_denoiser, extract_i2t_image_features
 from .layout import TaskLayout
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
 from .schedule import build_schedule_tables
+from .text import metadata_from_state
 
 
 class VQTokenLabelProbe(nn.Module):
@@ -78,9 +79,9 @@ def _evaluate(
     config: ProjectConfig,
     layout: TaskLayout,
     denoiser,
-    schedule_tables: dict,
+    schedule_tables: dict | None,
     vq_probe: VQTokenLabelProbe,
-    flm_probe: PooledFeatureLabelProbe,
+    flm_probe: PooledFeatureLabelProbe | None,
     label_values: torch.Tensor,
     split: str,
 ) -> dict[str, float]:
@@ -100,6 +101,56 @@ def _evaluate(
         image_tokens = batch["image_tokens"].to(device)
         labels = labels_to_class_indices(batch["label"].to(device), label_values)
         vq_logits = vq_probe(image_tokens)
+        flm_logits = None
+        if flm_probe is not None:
+            if denoiser is None or schedule_tables is None:
+                raise ValueError("flm_probe requires denoiser and schedule_tables")
+            flm_features = extract_i2t_image_features(
+                denoiser=denoiser,
+                config=config,
+                layout=layout,
+                schedule_tables=schedule_tables,
+                image_tokens=image_tokens,
+            )
+            flm_logits = flm_probe(flm_features)
+        totals["vq_correct"] += int(vq_logits.argmax(dim=1).eq(labels).sum().item())
+        if flm_logits is not None:
+            totals["flm_correct"] += int(flm_logits.argmax(dim=1).eq(labels).sum().item())
+        totals["total"] += int(labels.numel())
+    total = max(totals["total"], 1)
+    metrics = {
+        f"{split}_vq_token_accuracy": totals["vq_correct"] / total,
+        f"{split}_total": float(totals["total"]),
+    }
+    if flm_probe is not None:
+        metrics[f"{split}_flm_hidden_accuracy"] = totals["flm_correct"] / total
+    return metrics
+
+
+def _train_step(
+    *,
+    config: ProjectConfig,
+    layout: TaskLayout,
+    denoiser,
+    schedule_tables: dict | None,
+    vq_probe: VQTokenLabelProbe,
+    flm_probe: PooledFeatureLabelProbe | None,
+    label_values: torch.Tensor,
+    batch: dict[str, torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    device = label_values.device
+    image_tokens = batch["image_tokens"].to(device)
+    labels = labels_to_class_indices(batch["label"].to(device), label_values)
+    vq_logits = vq_probe(image_tokens)
+    vq_loss = F.cross_entropy(vq_logits, labels)
+    loss = vq_loss
+    parts = {
+        "vq_loss": float(vq_loss.detach().cpu().item()),
+        "vq_batch_accuracy": _accuracy(vq_logits, labels),
+    }
+    if flm_probe is not None:
+        if denoiser is None or schedule_tables is None:
+            raise ValueError("flm_probe requires denoiser and schedule_tables")
         flm_features = extract_i2t_image_features(
             denoiser=denoiser,
             config=config,
@@ -108,49 +159,25 @@ def _evaluate(
             image_tokens=image_tokens,
         )
         flm_logits = flm_probe(flm_features)
-        totals["vq_correct"] += int(vq_logits.argmax(dim=1).eq(labels).sum().item())
-        totals["flm_correct"] += int(flm_logits.argmax(dim=1).eq(labels).sum().item())
-        totals["total"] += int(labels.numel())
-    total = max(totals["total"], 1)
-    return {
-        f"{split}_vq_token_accuracy": totals["vq_correct"] / total,
-        f"{split}_flm_hidden_accuracy": totals["flm_correct"] / total,
-        f"{split}_total": float(totals["total"]),
-    }
+        flm_loss = F.cross_entropy(flm_logits, labels)
+        loss = loss + flm_loss
+        parts.update(
+            {
+                "flm_loss": float(flm_loss.detach().cpu().item()),
+                "flm_batch_accuracy": _accuracy(flm_logits, labels),
+            }
+        )
+    return loss, parts
 
 
-def _train_step(
-    *,
-    config: ProjectConfig,
-    layout: TaskLayout,
-    denoiser,
-    schedule_tables: dict,
-    vq_probe: VQTokenLabelProbe,
-    flm_probe: PooledFeatureLabelProbe,
-    label_values: torch.Tensor,
-    batch: dict[str, torch.Tensor],
-) -> tuple[torch.Tensor, dict[str, float]]:
-    device = label_values.device
-    image_tokens = batch["image_tokens"].to(device)
-    labels = labels_to_class_indices(batch["label"].to(device), label_values)
-    vq_logits = vq_probe(image_tokens)
-    flm_features = extract_i2t_image_features(
-        denoiser=denoiser,
-        config=config,
-        layout=layout,
-        schedule_tables=schedule_tables,
-        image_tokens=image_tokens,
+def _layout_from_tokenizer_state(tokenizer_state: dict) -> TaskLayout:
+    text_metadata = metadata_from_state(tokenizer_state)
+    return TaskLayout(
+        image_seq_len=int(tokenizer_state["image_seq_len"]),
+        text_seq_len=int(text_metadata.seq_len),
+        codebook_size=int(tokenizer_state["codebook_size"]),
+        text_vocab_size=int(text_metadata.vocab_size),
     )
-    flm_logits = flm_probe(flm_features)
-    vq_loss = F.cross_entropy(vq_logits, labels)
-    flm_loss = F.cross_entropy(flm_logits, labels)
-    loss = vq_loss + flm_loss
-    return loss, {
-        "vq_loss": float(vq_loss.detach().cpu().item()),
-        "flm_loss": float(flm_loss.detach().cpu().item()),
-        "vq_batch_accuracy": _accuracy(vq_logits, labels),
-        "flm_batch_accuracy": _accuracy(flm_logits, labels),
-    }
 
 
 def run_label_feature_probe(
@@ -158,6 +185,7 @@ def run_label_feature_probe(
     config: ProjectConfig,
     steps: int = 200,
     eval_every: int = 50,
+    vq_only: bool = False,
     run_context: RunContext | None = None,
 ) -> dict:
     if steps < 1:
@@ -170,12 +198,18 @@ def run_label_feature_probe(
     run_context = run_context or RunContext(config, "probe-label-features")
     run_context.set_device(device)
 
-    denoiser, _, layout, _ = _load_frozen_denoiser(config, device)
-    schedule_tables = build_schedule_tables(
-        config,
-        image_vocab_size=layout.codebook_size,
-        text_vocab_size=layout.text_vocab_size,
-    )
+    denoiser = None
+    flm_probe = None
+    if vq_only:
+        layout = _layout_from_tokenizer_state(load_tokenizer_state(config))
+        schedule_tables = None
+    else:
+        denoiser, _, layout, _ = _load_frozen_denoiser(config, device)
+        schedule_tables = build_schedule_tables(
+            config,
+            image_vocab_size=layout.codebook_size,
+            text_vocab_size=layout.text_vocab_size,
+        )
     label_values = torch.tensor(config.labels.values, dtype=torch.long, device=device)
     num_classes = int(label_values.numel())
     vq_probe = VQTokenLabelProbe(
@@ -183,12 +217,11 @@ def run_label_feature_probe(
         seq_len=layout.image_seq_len,
         num_classes=num_classes,
     ).to(device)
-    flm_probe = PooledFeatureLabelProbe(input_dim=config.model.d_model, num_classes=num_classes).to(device)
-    optimizer = torch.optim.AdamW(
-        list(vq_probe.parameters()) + list(flm_probe.parameters()),
-        lr=config.i2t_llm.lr,
-        weight_decay=config.train.weight_decay,
-    )
+    params = list(vq_probe.parameters())
+    if not vq_only:
+        flm_probe = PooledFeatureLabelProbe(input_dim=config.model.d_model, num_classes=num_classes).to(device)
+        params += list(flm_probe.parameters())
+    optimizer = torch.optim.AdamW(params, lr=config.i2t_llm.lr, weight_decay=config.train.weight_decay)
     train_loader = build_loader(
         split_path(config, "train"),
         batch_size=config.train.batch_size,
@@ -205,6 +238,7 @@ def run_label_feature_probe(
         "source": "probe-label-features",
         "steps": int(steps),
         "eval_every": int(eval_every),
+        "vq_only": bool(vq_only),
         "source_checkpoint": str(config.paths.models_dir / "checkpoints" / "stage2_latest.pt"),
         "feature_progress": float(config.i2t_llm.feature_progress),
         "snapshots": snapshots,
@@ -263,9 +297,9 @@ def run_label_feature_probe(
             )
 
     best_vq = max(snapshots, key=lambda record: record["test_vq_token_accuracy"]) if snapshots else {}
-    best_flm = max(snapshots, key=lambda record: record["test_flm_hidden_accuracy"]) if snapshots else {}
     summary["best_vq"] = best_vq
-    summary["best_flm"] = best_flm
+    if not vq_only:
+        summary["best_flm"] = max(snapshots, key=lambda record: record["test_flm_hidden_accuracy"]) if snapshots else {}
     summary["final"] = snapshots[-1] if snapshots else {}
     summary_path = run_context.log_path("summary.json")
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
