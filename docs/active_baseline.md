@@ -156,16 +156,16 @@
   - step `100`: `0.4609375`
   - step `150`: `0.609375`
   - step `200`: `0.69921875`
-- Comparison: the previous Emu3.5 VQ-token probe reached only `0.2734375` on a 256-sample test set after `200` steps. SigLIP-VQ reaches `0.69921875` on the same test size even at 128px.
-- Decision: treat the original Emu3.5 VQ as a poor understanding feature for this i2t path. SigLIP-VQ materially improves class-level semantics and should become the next image-understanding tokenizer branch.
-- Lesson: generation VQ and understanding VQ should be split. Keep Emu3.5 VQ for the current t2i/unconditional generation baseline, but do not expect it to drive a strong i2t text decoder. The next real algorithmic experiment should use SigLIP-VQ tokens or a SigLIP-VQ-derived semantic adapter for image-to-text understanding, measured first with `probe-label-features --vq-only` and then with a raw `no_i2t_projection` i2t guard.
+- Comparison: the earlier generation-tokenizer VQ-token probe reached only `0.2734375` on a 256-sample test set after `200` steps. SigLIP-VQ reaches `0.69921875` on the same test size even at 128px.
+- Decision: SigLIP-VQ materially improves class-level semantics and should be tested as the shared image-token space for the next unified FLM branch, not only as a separate understanding adapter.
+- Lesson: the old sampler line should be treated as a historical baseline. The next real algorithmic experiment should use SigLIP-VQ tokens inside the FLM itself and measure both image-to-text understanding and text-to-token generation.
 
 ### SigLIP-VQ text decoder probe
 
 - Run timestamp: `2026-04-26T08:13:25Z` (`2026-04-26 16:13:25 CST`).
 - Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_text_decoder_probe/20260426T081325Z-probe-vq-text-decoder/summary.json`.
 - Code state: remote detached checkout `1f6b4b31a61121c0304ebb75ee06c6c4bf148749`.
-- Method: train a small Transformer decoder directly from LLaDA2.0-Uni SigLIP-VQ tokens to canonical char-level label text. This bypasses the old FLM sampler, `candidate_renoise`, and all Emu3.5 text-state fallbacks.
+- Method: train a small Transformer decoder directly from LLaDA2.0-Uni SigLIP-VQ tokens to canonical char-level label text. This bypasses the old FLM sampler, `candidate_renoise`, and legacy text-state fallbacks.
 - Config: `configs/flm_joint_work_siglipvq_text_decoder_probe.yaml`, image size `128`, train/test limits `256/256`, `d_model = 256`, `n_layers = 2`, `steps = 200`, CE-only.
 - Smoke: 2-step run completed successfully at `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_text_decoder_probe/20260426T081229Z-probe-vq-text-decoder/summary.json`.
 - Main result:
@@ -174,9 +174,51 @@
   - step `100`: free exact `0.7265625`, candidate `0.89453125`, shuffled candidate `0.09765625`, token `0.8831886345698501`
   - step `150`: free exact `0.859375`, candidate `0.92578125`, shuffled candidate `0.08984375`, token `0.925808997632202`
   - step `200`: free exact `0.86328125`, candidate `0.921875`, shuffled candidate `0.09375`, token `0.925808997632202`
-- Interpretation: this is a paradigm-level result, not a sampler tweak. The same task that stalled around `0.17` exact with the Emu3.5 FLM sampler reaches `0.86` free exact when the i2t path is fed SigLIP-VQ semantic tokens and trained as a direct text decoder.
-- Decision: stop treating the current i2t failure as primarily a gamma/sampler problem. The next architecture should be two-stream: Emu3.5 VQ for generation and SigLIP-VQ-derived semantic tokens/features for understanding.
+- Interpretation: this is a paradigm-level result, not a sampler tweak. The same task that stalled around `0.17` exact with the old FLM sampler reaches `0.86` free exact when the i2t path is fed SigLIP-VQ semantic tokens and trained as a direct text decoder.
+- Decision: stop treating the current i2t failure as primarily a gamma/sampler problem. The next architecture test should be a unified FLM over SigLIP-VQ image tokens, so generation and understanding share the same semantic token space.
 - Lesson: no contrast term was needed for the first proof; shuffled-image candidate accuracy stayed near chance (`0.09375`) while true-image candidate accuracy reached `0.921875`. Use contrast only if a larger-scale SigLIP-VQ decoder starts to leak label priors.
+
+### SigLIP-VQ unified FLM generation probe
+
+- Run timestamp: `2026-04-26T10:29:16Z` to `2026-04-26T10:36:58Z` (`2026-04-26 18:29:16-18:36:58 CST`).
+- Code state: remote detached checkout `7fc0eb0585f0a081b708605167c3c44bc538b7bc`.
+- Config: `configs/flm_joint_work_siglipvq_generation_probe.yaml`.
+- Purpose: test whether SigLIP-VQ can be the shared image-token space for a unified FLM, not only an image-to-text probe.
+- Decoder assets:
+  - assets are cached under `/fangxueji/Projects/PG/uniindex/.cache`
+  - `decoder-turbo/decoder_model.safetensors` is about `12.3GB`
+  - the decoder is an evaluation renderer for VQ tokens; it is not part of FLM training
+- Implementation fixes before the final run:
+  - added a diffusers attention-dispatch compatibility wrapper for the decoder source
+  - narrowed reconstruction-probe `inference_mode` so first-time classifier training keeps gradients enabled
+  - changed SigLIP-VQ reconstruction to the decoder's native `resolution_multiplier = 2`
+  - changed the generation probe config to `image_size = 512`, grid `32x32`, train/test limits `64/64`, batch size `4`, stage steps `50/100`
+  - reconstruction grids now show input/reconstruction pairs
+- Reconstruction oracle:
+  - committed-config summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_probe_img512/20260426T102916Z-probe-siglipvq-reconstruction/summary.json`
+  - visual grid: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_probe_img512/20260426T102916Z-probe-siglipvq-reconstruction/reconstruction_grid.png`
+  - result: `2/2` classifier accuracy; `seven -> seven`, `two -> two`
+  - lesson: 128px / `resolution_multiplier = 1` produced unreadable artifacts, but native 512px / `resolution_multiplier = 2` reconstructs recognizable MNIST digits. Do not judge this token space from the non-native renderer setting.
+- Unified FLM training smoke:
+  - stage1 metadata: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_probe_img512/20260426T103459Z-stage1/metadata.json`
+  - stage2 metadata: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_probe_img512/20260426T103536Z-stage2/metadata.json`
+  - checkpoints:
+    - `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/models/siglipvq_generation_probe_img512/checkpoints/stage1_latest.pt`
+    - `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/models/siglipvq_generation_probe_img512/checkpoints/stage2_latest.pt`
+  - result: 512px SigLIP-VQ token space trains through stage1 and stage2 successfully; sequence length `1024` is workable with batch size `4`
+- Initial i2t diagnostic after the short unified-FLM train:
+  - diagnostics: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_probe_img512/20260426T103658Z-diagnose-i2t/i2t_diagnostics.json`
+  - `progress=0.5`: exact `0.0`, token `0.3184713375796178`, constrained label `0.09375`
+  - `progress=0.9`: exact `0.0`, token `0.31528662420382164`, constrained label `0.09375`
+  - generated text collapsed mostly to `oio`
+- Decision:
+  - Promote the unified SigLIP-VQ FLM branch as the next real architecture experiment because the token space reconstructs and the FLM can train on it.
+  - Do not treat the 100-step i2t result as a failure of the paradigm; it is a minimal connectivity smoke with only `64` training samples.
+  - Do not run full image eval yet: the current renderer loads a large decoder per image, so full t2i/unconditional eval would be too slow. First add a batched/cached renderer or run tiny decode-only eval.
+- Next iteration:
+  - add a cached/batched SigLIP-VQ renderer so t2i/unconditional eval is practical
+  - run a longer unified-FLM overfit probe on `16` samples, then `64/64`
+  - add a supervised label/text auxiliary loss for image-to-text during stage2 if the longer run still collapses to short bogus strings
 
 ## Recent text-weight sweep
 
