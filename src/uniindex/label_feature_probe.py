@@ -283,10 +283,7 @@ def run_label_feature_probe(
         )
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            list(vq_probe.parameters()) + list(flm_probe.parameters()),
-            max_norm=config.train.grad_clip_norm,
-        )
+        torch.nn.utils.clip_grad_norm_(params, max_norm=config.train.grad_clip_norm)
         optimizer.step()
         if (step + 1) % config.train.log_every == 0 or step == 0:
             append_jsonl(
