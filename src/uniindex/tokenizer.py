@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import types
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ LLADA2_UNI_IMAGE_TOKENIZER_URL = (
     "https://raw.githubusercontent.com/inclusionAI/LLaDA2.0-Uni/"
     f"{LLADA2_UNI_GITHUB_REVISION}/encoder/image_tokenizer.py"
 )
+LLADA2_UNI_IMAGE_TOKENIZER_FILES = [
+    "image_tokenizer/config.json",
+    "image_tokenizer/preprocessor_config.json",
+    "image_tokenizer/image_tokenizer.safetensors",
+]
 
 
 @dataclass
@@ -191,16 +197,35 @@ def _download_siglip_vq_assets(*, cache_dir: Path, model_name: str) -> dict[str,
     from huggingface_hub import snapshot_download
 
     source_path = ensure_llada_image_tokenizer_source(cache_dir)
-    model_dir = snapshot_download(
-        repo_id=model_name,
-        revision=LLADA2_UNI_HF_REVISION,
-        cache_dir=str(cache_dir / "huggingface"),
-        allow_patterns=["image_tokenizer/*"],
-    )
+    hf_cache_dir = cache_dir / "huggingface"
+    local_snapshot = _local_siglip_vq_snapshot(hf_cache_dir, model_name)
+    if local_snapshot is not None and os.environ.get("HF_HUB_OFFLINE") == "1":
+        model_dir = str(local_snapshot)
+    else:
+        try:
+            model_dir = snapshot_download(
+                repo_id=model_name,
+                revision=LLADA2_UNI_HF_REVISION,
+                cache_dir=str(hf_cache_dir),
+                allow_patterns=LLADA2_UNI_IMAGE_TOKENIZER_FILES,
+            )
+        except Exception:
+            local_snapshot = _local_siglip_vq_snapshot(hf_cache_dir, model_name)
+            if local_snapshot is None:
+                raise
+            model_dir = str(local_snapshot)
     return {
         "source_path": str(source_path),
         "model_dir": str(model_dir),
     }
+
+
+def _local_siglip_vq_snapshot(hf_cache_dir: Path, model_name: str) -> Path | None:
+    repo_cache = hf_cache_dir / f"models--{model_name.replace('/', '--')}"
+    snapshot = repo_cache / "snapshots" / LLADA2_UNI_HF_REVISION
+    if all((snapshot / filename).exists() for filename in LLADA2_UNI_IMAGE_TOKENIZER_FILES):
+        return snapshot
+    return None
 
 
 def download_siglip_vq_assets(config: ProjectConfig) -> dict[str, str]:
