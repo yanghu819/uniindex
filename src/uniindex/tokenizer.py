@@ -294,6 +294,30 @@ def _install_llada_decoder_dependency_stubs() -> None:
         torchdiffeq.odeint = odeint
         sys.modules["torchdiffeq"] = torchdiffeq
 
+    _install_diffusers_attention_dispatch_compat()
+
+
+def _install_diffusers_attention_dispatch_compat() -> None:
+    module_names = (
+        "diffusers.models.attention_processor",
+        "diffusers.models.attention_dispatch",
+    )
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        dispatch_fn = getattr(module, "dispatch_attention_fn", None)
+        if dispatch_fn is None or getattr(dispatch_fn, "_uniindex_drops_parallel_config", False):
+            continue
+
+        def wrapped_dispatch_attention_fn(*args, _dispatch_fn=dispatch_fn, **kwargs):
+            kwargs.pop("parallel_config", None)
+            return _dispatch_fn(*args, **kwargs)
+
+        wrapped_dispatch_attention_fn._uniindex_drops_parallel_config = True  # type: ignore[attr-defined]
+        setattr(module, "dispatch_attention_fn", wrapped_dispatch_attention_fn)
+
 
 def _load_llada_decoder_module(cache_dir: Path):
     _install_llada_decoder_dependency_stubs()

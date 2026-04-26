@@ -1,4 +1,5 @@
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import torch
 from PIL import Image
@@ -8,6 +9,7 @@ from uniindex.tokenizer import (
     LLADA2_UNI_IMAGE_TOKENIZER_FILES,
     SiglipVQVisionTokenizer,
     download_siglip_vq_decoder_assets,
+    _install_diffusers_attention_dispatch_compat,
 )
 
 
@@ -68,3 +70,28 @@ def test_decoder_asset_download_extends_encoder_assets(monkeypatch, tmp_path):
     assert set(LLADA2_UNI_IMAGE_TOKENIZER_FILES).issubset(set(captured["download"][2]))
     assert "decoder-turbo/decoder_model.safetensors" in captured["download"][2]
     assert "vae/diffusion_pytorch_model.safetensors" in captured["download"][2]
+
+
+def test_diffusers_attention_dispatch_compat_drops_parallel_config(monkeypatch):
+    diffusers = ModuleType("diffusers")
+    diffusers.__path__ = []
+    models = ModuleType("diffusers.models")
+    models.__path__ = []
+    attention_processor = ModuleType("diffusers.models.attention_processor")
+    calls = []
+
+    def dispatch_attention_fn(query, *, scale=1.0):
+        calls.append((float(query.item()), scale))
+        return query * scale
+
+    attention_processor.dispatch_attention_fn = dispatch_attention_fn
+    monkeypatch.setitem(sys.modules, "diffusers", diffusers)
+    monkeypatch.setitem(sys.modules, "diffusers.models", models)
+    monkeypatch.setitem(sys.modules, "diffusers.models.attention_processor", attention_processor)
+
+    _install_diffusers_attention_dispatch_compat()
+
+    result = attention_processor.dispatch_attention_fn(torch.tensor(2.0), scale=3.0, parallel_config=object())
+
+    assert result.item() == 6.0
+    assert calls == [(2.0, 3.0)]
