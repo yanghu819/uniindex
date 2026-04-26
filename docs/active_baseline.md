@@ -130,6 +130,36 @@
 - Decision: do not keep trying sampler-only fixes as the main line. The next meaningful iteration should either improve the image feature used by the i2t decoder or add an explicit image/text binding objective. A stronger text decoder can help format labels, but it cannot create label evidence if the image feature remains this weak.
 - Lesson: keep this probe as a cheap gate. Before spending time on new i2t decoders, first check whether the candidate image feature crosses a useful supervised-probe threshold; below roughly `0.50`, expect free text exact to stay unstable.
 
+### SigLIP-VQ follow-up
+
+- Run timestamp: `2026-04-26T07:53:22Z` (`2026-04-26 15:53:22 CST`).
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_label_feature_probe_128px_n256/20260426T075322Z-probe-label-features/summary.json`.
+- Code state: remote detached checkout `5749031b3d4b06e2492adce91e535639fd499a27`, which includes the vq-only probe fixes through `cab8710a05db6e377aaac272c306b742cb1bd786`.
+- Method: use LLaDA2.0-Uni SigLIP-VQ encoder tokens only, image size `128`, train/test limits `256/256`, and run the VQ-token label probe for `200` steps with `--vq-only`.
+- Asset fallback:
+  - remote Hugging Face API timed out before repo metadata lookup
+  - local download succeeded for the three required encoder files only: `config.json`, `preprocessor_config.json`, `image_tokenizer.safetensors`
+  - remote then downloaded `image_tokenizer.safetensors` from `hf-mirror.com` into the repo-local snapshot path and ran with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`
+  - `torchvision` is intentionally not added as a dependency; the SigLIP-VQ loader supplies a small import-compatible shim for the two preprocessing functions used by the external tokenizer source
+- Smoke:
+  - `16/16`, image size `256`, 2-step vq-only probe completed after the encoder-only path and vq-only probe bugs were fixed
+  - batch encoding path also completed a fresh `16/16` smoke
+- `128/128`, image size `128`, 200-step result:
+  - step `0`: `0.1171875`
+  - step `50`: `0.265625`
+  - step `100`: `0.5`
+  - step `150`: `0.6015625`
+  - step `200`: `0.6640625`
+- `256/256`, image size `128`, 200-step result:
+  - step `0`: `0.09765625`
+  - step `50`: `0.25`
+  - step `100`: `0.4609375`
+  - step `150`: `0.609375`
+  - step `200`: `0.69921875`
+- Comparison: the previous Emu3.5 VQ-token probe reached only `0.2734375` on a 256-sample test set after `200` steps. SigLIP-VQ reaches `0.69921875` on the same test size even at 128px.
+- Decision: treat the original Emu3.5 VQ as a poor understanding feature for this i2t path. SigLIP-VQ materially improves class-level semantics and should become the next image-understanding tokenizer branch.
+- Lesson: generation VQ and understanding VQ should be split. Keep Emu3.5 VQ for the current t2i/unconditional generation baseline, but do not expect it to drive a strong i2t text decoder. The next real algorithmic experiment should use SigLIP-VQ tokens or a SigLIP-VQ-derived semantic adapter for image-to-text understanding, measured first with `probe-label-features --vq-only` and then with a raw `no_i2t_projection` i2t guard.
+
 ## Recent text-weight sweep
 
 - Short sweep summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/text_weight_sweep/20260420T033259Z/summary.json`
@@ -661,7 +691,7 @@
 
 Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline.
 
-The label-feature probe shifts the next priority away from sampler-only work. A useful next i2t-focused run should first improve or replace the image feature feeding the text decoder, then measure with the raw `no_i2t_projection` guard. Good small probes are: stronger frozen image-feature adapters with true-vs-shuffled contrast, a direct raw-pixel/CNN label-probe baseline to quantify the VQ gap, or an adapter-only binding loss before the final text decoder. Continue only if the supervised image-feature probe moves well above the current `0.359375` FLM-hidden accuracy and raw i2t exact/token also improve. Keep `probe-label-features`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+The label-feature probe shifts the next priority away from sampler-only work. SigLIP-VQ is the first feature branch that clears the cheap semantic gate: `0.69921875` VQ-label accuracy versus `0.2734375` for Emu3.5 VQ. The next i2t-focused run should not keep tuning the old Emu-token sampler; it should train a small text decoder or adapter on SigLIP-VQ semantic tokens and measure with the raw `no_i2t_projection` guard. Good small probes are: SigLIP-VQ-token FLM-from-scratch on MNIST i2t only, SigLIP-VQ-to-text adapter with true-vs-shuffled contrast, or a two-stream setup that keeps Emu3.5 tokens for generation and SigLIP-VQ tokens for understanding. Keep `probe-label-features`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended Emu-token runs.
 
 ## Archived local trees
 
