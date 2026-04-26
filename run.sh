@@ -283,6 +283,23 @@ case "$MODE" in
     done
     run_cli probe-vq-text-decoder --config "$CONFIG" "${ARGS[@]}"
     ;;
+  probe-siglipvq-reconstruction)
+    CONFIG="configs/flm_joint_work_siglipvq_generation_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-siglipvq-reconstruction --config "$CONFIG" "${ARGS[@]}"
+    ;;
   visualize)
     CONFIG="configs/default.yaml"
     while [[ $# -gt 0 ]]; do

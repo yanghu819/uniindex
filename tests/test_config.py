@@ -160,6 +160,16 @@ def test_load_siglipvq_text_decoder_probe_config():
     assert config.sampling.image_to_text_projection == "none"
 
 
+def test_load_siglipvq_generation_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 128
+    assert config.dataset.train_limit == 256
+    assert config.dataset.test_limit == 256
+    assert config.paths.runs_dir.name == "siglipvq_generation_probe"
+    assert config.sampling.image_to_text_projection == "none"
+
+
 def test_load_minflm_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
     assert config.sampling.image_to_text_projection == "none"

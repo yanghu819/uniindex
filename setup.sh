@@ -43,6 +43,7 @@ fi
 PYTHON_BIN="$ROOT/.venv/bin/python"
 WHEELHOUSE_CACHE_DIR="$ROOT/.cache/wheelhouse"
 RUNTIME_REQUIREMENTS=(
+  diffusers==0.35.2
   huggingface-hub==0.35.3
   numpy==2.2.6
   pillow==12.2.0

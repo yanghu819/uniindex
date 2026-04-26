@@ -22,7 +22,8 @@ from .i2t_overfit import run_i2t_overfit_probe
 from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
 from .label_feature_probe import run_label_feature_probe
-from .tokenizer import download_siglip_vq_assets
+from .siglipvq_reconstruction import probe_siglipvq_reconstruction
+from .tokenizer import download_siglip_vq_assets, download_siglip_vq_decoder_assets
 from .vq_text_decoder import run_vq_text_decoder_probe
 
 
@@ -99,6 +100,9 @@ def _parser() -> argparse.ArgumentParser:
     download_siglip_vq = subparsers.add_parser("download-siglip-vq")
     download_siglip_vq.add_argument("--config", required=True)
 
+    download_siglip_vq_decoder = subparsers.add_parser("download-siglip-vq-decoder")
+    download_siglip_vq_decoder.add_argument("--config", required=True)
+
     probe_label_features = subparsers.add_parser("probe-label-features")
     probe_label_features.add_argument("--config", required=True)
     probe_label_features.add_argument("--steps", type=int, default=200)
@@ -114,6 +118,11 @@ def _parser() -> argparse.ArgumentParser:
     probe_vq_text_decoder.add_argument("--lr", type=float)
     probe_vq_text_decoder.add_argument("--contrast-weight", type=float, default=0.0)
     probe_vq_text_decoder.add_argument("--contrast-margin", type=float, default=1.0)
+
+    probe_siglipvq_reconstruction = subparsers.add_parser("probe-siglipvq-reconstruction")
+    probe_siglipvq_reconstruction.add_argument("--config", required=True)
+    probe_siglipvq_reconstruction.add_argument("--sample-count", type=int, default=16)
+    probe_siglipvq_reconstruction.add_argument("--split", choices=["train", "test"], default="test")
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -359,6 +368,14 @@ def _run_download_siglip_vq(config_path: str) -> int:
     return 0
 
 
+def _run_download_siglip_vq_decoder(config_path: str) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    result = download_siglip_vq_decoder_assets(config)
+    print(result)
+    return 0
+
+
 def _run_probe_label_features(*, config_path: str, steps: int, eval_every: int, vq_only: bool) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -402,6 +419,24 @@ def _run_probe_vq_text_decoder(
             lr=lr,
             contrast_weight=contrast_weight,
             contrast_margin=contrast_margin,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
+def _run_probe_siglipvq_reconstruction(*, config_path: str, sample_count: int, split: str) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-siglipvq-reconstruction")
+    try:
+        probe_siglipvq_reconstruction(
+            config=config,
+            sample_count=sample_count,
+            split=split,
             run_context=run_context,
         )
         run_context.update_status("ok")
@@ -529,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_download_i2t_llm(args.config)
     if args.command == "download-siglip-vq":
         return _run_download_siglip_vq(args.config)
+    if args.command == "download-siglip-vq-decoder":
+        return _run_download_siglip_vq_decoder(args.config)
     if args.command == "probe-label-features":
         return _run_probe_label_features(
             config_path=args.config,
@@ -546,6 +583,12 @@ def main(argv: list[str] | None = None) -> int:
             lr=args.lr,
             contrast_weight=args.contrast_weight,
             contrast_margin=args.contrast_margin,
+        )
+    if args.command == "probe-siglipvq-reconstruction":
+        return _run_probe_siglipvq_reconstruction(
+            config_path=args.config,
+            sample_count=args.sample_count,
+            split=args.split,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)

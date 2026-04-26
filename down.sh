@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="configs/default.yaml"
 DOWNLOAD_I2T_LLM=0
 DOWNLOAD_SIGLIP_VQ=0
+DOWNLOAD_SIGLIP_VQ_DECODER=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,6 +19,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --siglip-vq)
       DOWNLOAD_SIGLIP_VQ=1
+      shift
+      ;;
+    --siglip-vq-decoder)
+      DOWNLOAD_SIGLIP_VQ_DECODER=1
       shift
       ;;
     *)
@@ -59,4 +64,8 @@ fi
 
 if [[ "$DOWNLOAD_SIGLIP_VQ" == "1" ]]; then
   "$ROOT/.venv/bin/python" -m uniindex.cli download-siglip-vq --config "$CONFIG"
+fi
+
+if [[ "$DOWNLOAD_SIGLIP_VQ_DECODER" == "1" ]]; then
+  "$ROOT/.venv/bin/python" -m uniindex.cli download-siglip-vq-decoder --config "$CONFIG"
 fi
