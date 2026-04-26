@@ -64,6 +64,7 @@
 - Use `./run.sh diagnose-i2t-sampler-trajectory --config ... --progress ...` to test whether the free i2t sampling state still responds to true-image controls at intermediate sampler steps.
 - Use `./run.sh probe-i2t-llm-decoder --config configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml --steps 200 --eval-every 50` to test the pretrained small-LLM i2t decoder path.
 - Use `./down.sh --config configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml --i2t-llm` to download `distilgpt2` into the repo-local Hugging Face cache before remote runs.
+- Use `./run.sh probe-label-features --config configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml --steps 200 --eval-every 50` to test whether VQ image tokens and frozen FLM image hidden features contain linearly usable label information.
 - Use `./run.sh sweep-i2t-power` for the 2/4/6 short sweep over `image_to_text_text_time_power`
 - Use `./run.sh sweep-i2t-repeats` for the 4/6/8 short sweep over `stage2_image_to_text_repeats`
 - `run.sh` exports `PYTHONPATH=$ROOT/src`, so every worktree resolves the local code instead of an unrelated editable install
@@ -103,6 +104,31 @@
   - step `200`: candidate `0.28125`, shuffled `0.12109375`, margin `0.16015625`, free generation exact `0.0`
 - Decision: do not promote this first LLM decoder probe because the final and peak candidate accuracies are below the pre-set `0.35` signal threshold. However, the true-vs-shuffled margin is real, peaking at `0.21484375`, so the image prefix is not being ignored.
 - Next LLM-side iteration should not pursue free generation yet. It should make the candidate-ranking objective stronger: keep frozen `distilgpt2`, train the prefix adapter with explicit true-vs-shuffled candidate contrast, and save/select the best eval checkpoint instead of assuming the final step is best.
+
+## Current label feature probe
+
+- Run timestamp: `2026-04-26T05:41:46Z` (`2026-04-26 13:41:46 CST`).
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/label_feature_probe/20260426T054146Z-probe-label-features/summary.json`.
+- Code state: remote detached checkout `6c52f8ba9e71505bc38e3564a27fa1a8fb886fa3`.
+- Purpose: directly test the hypothesis that the VQ tokens or frozen FLM image features might be too weak for image-to-text understanding.
+- Method:
+  - train a small supervised probe from VQ image tokens to the ten MNIST labels
+  - train a separate small supervised probe from frozen FLM pooled image hidden features to the ten labels
+  - keep the active checkpoint frozen; no FLM training and no checkpoint writes
+- Local validation before the run:
+  - `.venv/bin/python -m pytest -q` -> `89 passed`
+  - `ruff check src/uniindex/label_feature_probe.py src/uniindex/cli.py tests/test_label_feature_probe.py` -> passed
+  - `bash -n run.sh` -> passed
+- Remote smoke: 2-step `probe-label-features` completed with `metadata.exit_status = ok`.
+- 200-step results:
+  - step `0`: VQ token probe `0.08984375`, FLM hidden probe `0.08984375`
+  - step `50`: VQ token probe `0.12890625`, FLM hidden probe `0.26171875`
+  - step `100`: VQ token probe `0.203125`, FLM hidden probe `0.33203125`
+  - step `150`: VQ token probe `0.21484375`, FLM hidden probe `0.34375`
+  - step `200`: VQ token probe `0.2734375`, FLM hidden probe `0.359375`
+- Interpretation: VQ features are not blank, and the frozen FLM hidden features are better than raw VQ-token probing, but both are weak. This makes the current bottleneck look like weak image semantics plus weak image-text binding, not just a bad text sampler.
+- Decision: do not keep trying sampler-only fixes as the main line. The next meaningful iteration should either improve the image feature used by the i2t decoder or add an explicit image/text binding objective. A stronger text decoder can help format labels, but it cannot create label evidence if the image feature remains this weak.
+- Lesson: keep this probe as a cheap gate. Before spending time on new i2t decoders, first check whether the candidate image feature crosses a useful supervised-probe threshold; below roughly `0.50`, expect free text exact to stay unstable.
 
 ## Recent text-weight sweep
 
@@ -633,7 +659,9 @@
 
 ## Next experiment
 
-Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline. The next i2t-focused run should keep the raw `no_i2t_projection` guard and repeat only the early head-local signal: sweep `10/20/30` or `15/25/35` steps with sequence CE, then stop unless exact and token both improve while t2i/uncond remain near guard. The objective should prevent "label-only wins"; candidate directions are exact/token-focused sequence gating, lower-rank/adaptor-only binding, or an explicit image/text contrast term applied before the final text decoder rather than updating the shared generator path. Keep `probe-i2t-overfit` and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
+Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline.
+
+The label-feature probe shifts the next priority away from sampler-only work. A useful next i2t-focused run should first improve or replace the image feature feeding the text decoder, then measure with the raw `no_i2t_projection` guard. Good small probes are: stronger frozen image-feature adapters with true-vs-shuffled contrast, a direct raw-pixel/CNN label-probe baseline to quantify the VQ gap, or an adapter-only binding loss before the final text decoder. Continue only if the supervised image-feature probe moves well above the current `0.359375` FLM-hidden accuracy and raw i2t exact/token also improve. Keep `probe-label-features`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended runs.
 
 ## Archived local trees
 
