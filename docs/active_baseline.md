@@ -160,6 +160,24 @@
 - Decision: treat the original Emu3.5 VQ as a poor understanding feature for this i2t path. SigLIP-VQ materially improves class-level semantics and should become the next image-understanding tokenizer branch.
 - Lesson: generation VQ and understanding VQ should be split. Keep Emu3.5 VQ for the current t2i/unconditional generation baseline, but do not expect it to drive a strong i2t text decoder. The next real algorithmic experiment should use SigLIP-VQ tokens or a SigLIP-VQ-derived semantic adapter for image-to-text understanding, measured first with `probe-label-features --vq-only` and then with a raw `no_i2t_projection` i2t guard.
 
+### SigLIP-VQ text decoder probe
+
+- Run timestamp: `2026-04-26T08:13:25Z` (`2026-04-26 16:13:25 CST`).
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_text_decoder_probe/20260426T081325Z-probe-vq-text-decoder/summary.json`.
+- Code state: remote detached checkout `1f6b4b31a61121c0304ebb75ee06c6c4bf148749`.
+- Method: train a small Transformer decoder directly from LLaDA2.0-Uni SigLIP-VQ tokens to canonical char-level label text. This bypasses the old FLM sampler, `candidate_renoise`, and all Emu3.5 text-state fallbacks.
+- Config: `configs/flm_joint_work_siglipvq_text_decoder_probe.yaml`, image size `128`, train/test limits `256/256`, `d_model = 256`, `n_layers = 2`, `steps = 200`, CE-only.
+- Smoke: 2-step run completed successfully at `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_text_decoder_probe/20260426T081229Z-probe-vq-text-decoder/summary.json`.
+- Main result:
+  - step `0`: free exact `0.0`, candidate `0.12890625`, shuffled candidate `0.12109375`, token `0.05288082083662194`
+  - step `50`: free exact `0.19921875`, candidate `0.76953125`, shuffled candidate `0.09765625`, token `0.6906077348066298`
+  - step `100`: free exact `0.7265625`, candidate `0.89453125`, shuffled candidate `0.09765625`, token `0.8831886345698501`
+  - step `150`: free exact `0.859375`, candidate `0.92578125`, shuffled candidate `0.08984375`, token `0.925808997632202`
+  - step `200`: free exact `0.86328125`, candidate `0.921875`, shuffled candidate `0.09375`, token `0.925808997632202`
+- Interpretation: this is a paradigm-level result, not a sampler tweak. The same task that stalled around `0.17` exact with the Emu3.5 FLM sampler reaches `0.86` free exact when the i2t path is fed SigLIP-VQ semantic tokens and trained as a direct text decoder.
+- Decision: stop treating the current i2t failure as primarily a gamma/sampler problem. The next architecture should be two-stream: Emu3.5 VQ for generation and SigLIP-VQ-derived semantic tokens/features for understanding.
+- Lesson: no contrast term was needed for the first proof; shuffled-image candidate accuracy stayed near chance (`0.09375`) while true-image candidate accuracy reached `0.921875`. Use contrast only if a larger-scale SigLIP-VQ decoder starts to leak label priors.
+
 ## Recent text-weight sweep
 
 - Short sweep summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/text_weight_sweep/20260420T033259Z/summary.json`
@@ -691,7 +709,7 @@
 
 Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline.
 
-The label-feature probe shifts the next priority away from sampler-only work. SigLIP-VQ is the first feature branch that clears the cheap semantic gate: `0.69921875` VQ-label accuracy versus `0.2734375` for Emu3.5 VQ. The next i2t-focused run should not keep tuning the old Emu-token sampler; it should train a small text decoder or adapter on SigLIP-VQ semantic tokens and measure with the raw `no_i2t_projection` guard. Good small probes are: SigLIP-VQ-token FLM-from-scratch on MNIST i2t only, SigLIP-VQ-to-text adapter with true-vs-shuffled contrast, or a two-stream setup that keeps Emu3.5 tokens for generation and SigLIP-VQ tokens for understanding. Keep `probe-label-features`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended Emu-token runs.
+The label-feature probe and direct text-decoder probe shift the next priority away from sampler-only work. SigLIP-VQ clears both cheap semantic gates: VQ-label accuracy `0.69921875` versus `0.2734375` for Emu3.5 VQ, and direct text-decoder free exact `0.86328125` with shuffled-image candidate accuracy near chance. The next i2t-focused run should scale this path rather than tuning the old Emu-token sampler: use more train/test samples, then wire a two-stream model where Emu3.5 tokens keep the generation branch and SigLIP-VQ tokens/features feed the understanding/text branch. Keep `probe-label-features`, `probe-vq-text-decoder`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended Emu-token runs.
 
 ## Archived local trees
 
