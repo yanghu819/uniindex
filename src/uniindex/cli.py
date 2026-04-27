@@ -23,6 +23,7 @@ from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
 from .label_feature_probe import run_label_feature_probe
 from .siglipvq_reconstruction import probe_siglipvq_reconstruction
+from .t2i_token_guard import run_t2i_token_guard
 from .tokenizer import download_siglip_vq_assets, download_siglip_vq_decoder_assets
 from .vq_text_decoder import run_vq_text_decoder_probe
 
@@ -123,6 +124,15 @@ def _parser() -> argparse.ArgumentParser:
     probe_siglipvq_reconstruction.add_argument("--config", required=True)
     probe_siglipvq_reconstruction.add_argument("--sample-count", type=int, default=16)
     probe_siglipvq_reconstruction.add_argument("--split", choices=["train", "test"], default="test")
+
+    probe_t2i_token_guard = subparsers.add_parser("probe-t2i-token-guard")
+    probe_t2i_token_guard.add_argument("--config", required=True)
+    probe_t2i_token_guard.add_argument("--probe-steps", type=int, default=200)
+    probe_t2i_token_guard.add_argument("--eval-every", type=int, default=50)
+    probe_t2i_token_guard.add_argument("--samples-per-label", type=int, default=8)
+    probe_t2i_token_guard.add_argument("--unconditional-count", type=int, default=32)
+    probe_t2i_token_guard.add_argument("--decode-samples", type=int, default=0)
+    probe_t2i_token_guard.add_argument("--lr", type=float)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -446,6 +456,37 @@ def _run_probe_siglipvq_reconstruction(*, config_path: str, sample_count: int, s
     return 0
 
 
+def _run_probe_t2i_token_guard(
+    *,
+    config_path: str,
+    probe_steps: int,
+    eval_every: int,
+    samples_per_label: int,
+    unconditional_count: int,
+    decode_samples: int,
+    lr: float | None,
+) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-t2i-token-guard")
+    try:
+        run_t2i_token_guard(
+            config=config,
+            probe_steps=probe_steps,
+            eval_every=eval_every,
+            samples_per_label=samples_per_label,
+            unconditional_count=unconditional_count,
+            decode_samples=decode_samples,
+            lr=lr,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -589,6 +630,16 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             sample_count=args.sample_count,
             split=args.split,
+        )
+    if args.command == "probe-t2i-token-guard":
+        return _run_probe_t2i_token_guard(
+            config_path=args.config,
+            probe_steps=args.probe_steps,
+            eval_every=args.eval_every,
+            samples_per_label=args.samples_per_label,
+            unconditional_count=args.unconditional_count,
+            decode_samples=args.decode_samples,
+            lr=args.lr,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)
