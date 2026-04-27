@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
@@ -130,6 +131,46 @@ def _sequence_text_loss(
         raise ValueError("each text target row must exactly match one canonical text candidate")
     target_indices = matches.float().argmax(dim=1)
     return F.cross_entropy(scores, target_indices)
+
+
+def _labels_to_class_indices(labels: torch.Tensor, label_values: torch.Tensor) -> torch.Tensor:
+    label_values = label_values.to(labels.device)
+    matches = labels[:, None].eq(label_values[None, :])
+    if not bool(matches.any(dim=1).all().item()):
+        missing = labels[~matches.any(dim=1)].detach().cpu().tolist()
+        raise ValueError(f"labels contain values outside config.labels.values: {missing}")
+    return matches.float().argmax(dim=1).long()
+
+
+def _image_to_text_semantic_label_loss(
+    *,
+    model: UnifiedDenoiser,
+    label_head: nn.Module,
+    x1: torch.Tensor,
+    labels: torch.Tensor,
+    label_values: torch.Tensor,
+    modality_ids: torch.Tensor,
+    layout: TaskLayout,
+    valid_token_mask: torch.Tensor,
+    text_time: float,
+) -> torch.Tensor:
+    t_pos = torch.full(
+        (x1.shape[0], layout.seq_len),
+        float(text_time),
+        device=x1.device,
+        dtype=x1.dtype,
+    )
+    t_pos = condition_clean_timesteps(
+        t_pos,
+        layout.image_seq_len,
+        condition_image=True,
+        condition_text=False,
+    )
+    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
+    hidden = model.forward_features(z_t, t_pos, modality_ids)
+    pooled_image = hidden[:, layout.image_slice].mean(dim=1)
+    class_targets = _labels_to_class_indices(labels, label_values)
+    return F.cross_entropy(label_head(pooled_image), class_targets)
 
 
 def _image_text_mismatch_loss(
@@ -341,6 +382,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         text_vocab_size=layout.text_vocab_size,
     )
     shifted_label_tokens = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size)
+    label_values = torch.tensor(config.labels.values, dtype=torch.long, device=device)
 
     loader = build_loader(
         split_path(config, "train"),
@@ -368,7 +410,16 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         payload = torch.load(init_path, map_location=device)
         model.load_state_dict(payload["model"])
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
+    semantic_label_head: nn.Module | None = None
+    optimizer_params: list[nn.Parameter] = list(model.parameters())
+    if config.train.image_to_text_semantic_weight > 0.0:
+        semantic_label_head = nn.Sequential(
+            nn.LayerNorm(config.model.d_model),
+            nn.Linear(config.model.d_model, len(config.labels.values)),
+        ).to(device)
+        optimizer_params += list(semantic_label_head.parameters())
+
+    optimizer = torch.optim.AdamW(optimizer_params, lr=config.train.lr, weight_decay=config.train.weight_decay)
 
     total_steps = config.train.stage1_steps if stage == "stage1" else config.train.stage2_steps
     modality_ids = layout.position_modalities().to(device)
@@ -420,10 +471,25 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             image_to_text_label_weight=config.train.image_to_text_label_weight,
             image_to_text_label_text_time=config.train.image_to_text_label_text_time,
         )
+        semantic_label_loss = torch.zeros((), device=device)
+        if semantic_label_head is not None and task == "image_to_text":
+            semantic_label_loss = _image_to_text_semantic_label_loss(
+                model=model,
+                label_head=semantic_label_head,
+                x1=x1,
+                labels=batch["label"].to(device),
+                label_values=label_values,
+                modality_ids=modality_ids,
+                layout=layout,
+                valid_token_mask=valid_token_mask,
+                text_time=config.train.image_to_text_semantic_text_time,
+            )
+            loss = loss + config.train.image_to_text_semantic_weight * semantic_label_loss
+        parts["semantic_label_loss"] = float(semantic_label_loss.item())
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.train.grad_clip_norm)
+        torch.nn.utils.clip_grad_norm_(optimizer_params, max_norm=config.train.grad_clip_norm)
         optimizer.step()
 
         if step % config.train.log_every == 0 or step == 1:

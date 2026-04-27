@@ -9,6 +9,7 @@ from uniindex.train import (
     _apply_image_to_text_noise_policy,
     _image_text_mismatch_loss,
     _image_to_text_label_loss,
+    _image_to_text_semantic_label_loss,
     _loss_for_task,
     _task_time_schedule,
 )
@@ -74,6 +75,27 @@ class FixedLabelTextModel(torch.nn.Module):
             for offset, token_id in enumerate(self.label_text_tokens[self.label_index].tolist()):
                 logits[row, self.layout.image_seq_len + offset, token_id] = 10.0
         return logits
+
+
+class ImageFeatureModel(torch.nn.Module):
+    def __init__(self, layout: TaskLayout, feature_dim: int) -> None:
+        super().__init__()
+        self.layout = layout
+        self.feature_dim = feature_dim
+
+    def forward_features(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        del t, modality_ids
+        image_indices = z_t[:, self.layout.image_slice].argmax(dim=-1).squeeze(1)
+        hidden = torch.zeros(
+            (z_t.shape[0], self.layout.seq_len, self.feature_dim),
+            dtype=z_t.dtype,
+            device=z_t.device,
+        )
+        hidden[:, self.layout.image_slice] = torch.nn.functional.one_hot(
+            image_indices,
+            num_classes=self.feature_dim,
+        ).to(dtype=z_t.dtype).unsqueeze(1) * 10.0
+        return hidden
 
 
 def test_task_for_step_uses_configured_stage2_repeats():
@@ -277,6 +299,56 @@ def test_image_to_text_label_loss_rewards_image_bound_predictions():
 
     assert image_bound_loss.item() < 1e-4
     assert fixed_label_loss.item() > 1.0
+
+
+def test_image_to_text_semantic_label_loss_uses_pooled_image_features():
+    metadata = build_text_metadata(
+        kind="label",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    image_tokens = torch.tensor([[0], [1]])
+    text_targets = metadata.label_text_tokens.clone()
+    targets = unified_targets(image_tokens, text_targets, layout.codebook_size)
+    x1 = build_flm_clean_state(targets, layout.vocab_size)
+    label_head = torch.nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        label_head.weight.copy_(torch.eye(2))
+
+    correct_loss = _image_to_text_semantic_label_loss(
+        model=ImageFeatureModel(layout, feature_dim=2),
+        label_head=label_head,
+        x1=x1,
+        labels=torch.tensor([0, 1]),
+        label_values=torch.tensor([0, 1]),
+        modality_ids=layout.position_modalities(),
+        layout=layout,
+        valid_token_mask=layout.position_valid_token_mask(),
+        text_time=0.0,
+    )
+    swapped_loss = _image_to_text_semantic_label_loss(
+        model=ImageFeatureModel(layout, feature_dim=2),
+        label_head=label_head,
+        x1=x1,
+        labels=torch.tensor([1, 0]),
+        label_values=torch.tensor([0, 1]),
+        modality_ids=layout.position_modalities(),
+        layout=layout,
+        valid_token_mask=layout.position_valid_token_mask(),
+        text_time=0.0,
+    )
+
+    assert correct_loss.item() < 1e-4
+    assert swapped_loss.item() > 5.0
 
 
 def test_loss_for_task_does_not_apply_mismatch_loss_to_joint_task():

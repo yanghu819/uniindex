@@ -93,6 +93,8 @@ class TrainConfig:
     image_to_text_mismatch_margin: float = 1.0
     image_to_text_label_weight: float = 0.0
     image_to_text_label_text_time: float = 0.0
+    image_to_text_semantic_weight: float = 0.0
+    image_to_text_semantic_text_time: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -227,6 +229,8 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_mismatch_margin", 1.0)
     normalized.setdefault("image_to_text_label_weight", 0.0)
     normalized.setdefault("image_to_text_label_text_time", 0.0)
+    normalized.setdefault("image_to_text_semantic_weight", 0.0)
+    normalized.setdefault("image_to_text_semantic_text_time", 0.0)
     cap = normalized["image_to_text_text_time_cap"]
     if cap is not None and not 0.0 <= float(cap) <= 1.0:
         raise ValueError(f"image_to_text_text_time_cap must be in [0, 1], got {cap}")
@@ -250,6 +254,14 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     if not 0.0 <= label_text_time <= 1.0:
         raise ValueError(f"image_to_text_label_text_time must be in [0, 1], got {label_text_time}")
     normalized["image_to_text_label_text_time"] = label_text_time
+    semantic_weight = float(normalized["image_to_text_semantic_weight"])
+    if semantic_weight < 0.0:
+        raise ValueError(f"image_to_text_semantic_weight must be >= 0, got {semantic_weight}")
+    normalized["image_to_text_semantic_weight"] = semantic_weight
+    semantic_text_time = float(normalized["image_to_text_semantic_text_time"])
+    if not 0.0 <= semantic_text_time <= 1.0:
+        raise ValueError(f"image_to_text_semantic_text_time must be in [0, 1], got {semantic_text_time}")
+    normalized["image_to_text_semantic_text_time"] = semantic_text_time
     return normalized
 
 
