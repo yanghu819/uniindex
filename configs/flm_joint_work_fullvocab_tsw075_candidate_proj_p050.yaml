@@ -1,12 +1,12 @@
 project:
-  name: uniindex-fullvocab-long-tsw075-i2tr06
+  name: uniindex-fullvocab-long-tsw075-i2tr06-candidate-proj-p050
 
 paths:
   data_dir: data
   artifacts_dir: artifacts/fullvocab_short_shared
   models_dir: models/fullvocab_long_tsw075_i2tr06
-  runs_dir: runs/fullvocab_long_tsw075_i2tr06
-  logs_dir: logs/fullvocab_long_tsw075_i2tr06
+  runs_dir: runs/fullvocab_long_tsw075_i2tr06_candidate_proj_p050
+  logs_dir: logs/fullvocab_long_tsw075_i2tr06_candidate_proj_p050
   cache_dir: .cache
 
 tokenizer:

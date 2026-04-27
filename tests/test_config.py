@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import yaml
+
 from uniindex.config import load_config
 
 
@@ -10,6 +14,11 @@ def test_load_smoke_config():
     assert config.train.image_to_text_text_time_power is None
     assert config.train.image_to_text_text_time_cap is None
     assert config.train.image_to_text_noise_only_prob == 0.0
+    assert config.train.stage2_init_checkpoint is None
+    assert config.train.image_to_text_mismatch_weight == 0.0
+    assert config.train.image_to_text_mismatch_margin == 1.0
+    assert config.train.image_to_text_label_weight == 0.0
+    assert config.train.image_to_text_label_text_time == 0.0
     assert config.text.strings[0] == "zero"
     assert config.text.bos_token == "<bos>"
     assert config.text.eos_token == "<eos>"
@@ -21,6 +30,20 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_decoder == "sample"
     assert config.sampling.candidate_score_progress is None
     assert config.sampling.candidate_score_num_noise == 4
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.image_to_text_projection_progress == 0.5
+    assert config.sampling.image_to_text_projection_progresses is None
+    assert config.sampling.image_to_text_candidate_score_progress is None
+    assert config.sampling.image_to_text_candidate_score_num_noise == 1
+    assert config.sampling.image_to_text_candidate_score_blend_weight == 0.0
+    assert config.sampling.image_to_text_text_time_schedule == "power"
+    assert config.sampling.image_to_text_logit_normal_loc == 0.0
+    assert config.sampling.image_to_text_logit_normal_scale == 1.0
+    assert config.eval.isolate_sampling_rng is False
+    assert config.eval.sampling_seed is None
+    assert config.i2t_llm.enabled is False
+    assert config.i2t_llm.model_name == "distilgpt2"
+    assert config.i2t_llm.prefix_tokens == 8
 
 
 def test_load_understanding_config():
@@ -75,8 +98,228 @@ def test_load_fullvocab_tsw075_config():
     assert config.sampling.final_decode == "final_model_call"
     assert config.sampling.final_model_progress == 0.95
     assert config.sampling.image_to_text_decoder == "sample"
+    assert config.sampling.image_to_text_projection == "candidate_renoise"
+    assert config.sampling.image_to_text_projection_progress == 0.5
+    assert config.sampling.image_to_text_projection_progresses is None
     assert config.paths.artifacts_dir.name == "fullvocab_short_shared"
     assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06"
+
+
+def test_load_candidate_projection_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_candidate_proj_p050.yaml")
+    assert config.sampling.image_to_text_projection == "candidate_renoise"
+    assert config.sampling.image_to_text_projection_progress == 0.5
+    assert config.sampling.image_to_text_projection_progresses is None
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_candidate_proj_p050"
+
+
+def test_load_i2t_llm_decoder_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml")
+    assert config.i2t_llm.enabled is True
+    assert config.i2t_llm.model_name == "distilgpt2"
+    assert config.i2t_llm.cache_dir == ".cache/huggingface"
+    assert config.i2t_llm.prefix_tokens == 8
+    assert config.i2t_llm.adapter_hidden_dim == 512
+    assert config.i2t_llm.source_checkpoint == "models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt"
+    assert config.i2t_llm.train_steps == 200
+    assert config.i2t_llm.lr == 0.0001
+    assert config.i2t_llm.prompt == "Digit:"
+    assert config.i2t_llm.feature_progress == 0.5
+    assert config.i2t_llm.max_new_tokens == 4
+    assert config.paths.runs_dir.name == "i2t_llm_decoder"
+
+
+def test_load_label_feature_probe_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml")
+    assert config.paths.runs_dir.name == "label_feature_probe"
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.i2t_llm.enabled is False
+    assert config.i2t_llm.source_checkpoint == "models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt"
+    assert config.i2t_llm.feature_progress == 0.5
+
+
+def test_load_siglipvq_label_feature_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_label_feature_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.model_name == "inclusionAI/LLaDA2.0-Uni"
+    assert config.tokenizer.image_size == 256
+    assert config.tokenizer.compact_vocab is False
+    assert config.paths.artifacts_dir.name == "siglipvq_label_feature_probe"
+    assert config.paths.runs_dir.name == "siglipvq_label_feature_probe"
+    assert config.i2t_llm.source_checkpoint is None
+
+
+def test_load_siglipvq_text_decoder_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_text_decoder_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 128
+    assert config.dataset.train_limit == 256
+    assert config.dataset.test_limit == 256
+    assert config.paths.runs_dir.name == "siglipvq_text_decoder_probe"
+    assert config.sampling.image_to_text_projection == "none"
+
+
+def test_load_siglipvq_generation_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.dataset.train_limit == 64
+    assert config.dataset.test_limit == 64
+    assert config.train.batch_size == 4
+    assert config.paths.runs_dir.name == "siglipvq_generation_probe_img512"
+    assert config.sampling.image_to_text_projection == "none"
+
+
+def test_load_siglipvq_generation_labeltoken_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 64
+    assert config.dataset.test_limit == 64
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_probe_img512"
+    assert config.sampling.image_to_text_projection == "none"
+
+
+def test_load_siglipvq_generation_labeltoken_semantic_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 1.0
+    assert config.train.image_to_text_semantic_text_time == 0.0
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_probe_img512"
+
+
+def test_load_siglipvq_generation_labeltoken_summary_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_summary_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.model.image_summary_to_text is True
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 1.0
+    assert config.train.image_to_text_semantic_pool == "text"
+    assert config.i2t_llm.feature_pool == "text"
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_summary_probe_img512"
+
+
+def test_load_siglipvq_generation_labeltoken_semantic_token_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_token_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.model.image_summary_to_text is False
+    assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "hidden"
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 5.0
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_token_probe_img512"
+
+
+def test_load_siglipvq_generation_labeltoken_semantic_vqtoken_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.model.image_summary_to_text is False
+    assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "vq_tokens"
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 5.0
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512"
+
+
+def test_load_minflm_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.integrator == "scheduled_euler"
+    assert config.sampling.final_decode == "last_endpoint"
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 420700
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_minflm"
+
+
+def test_load_no_i2t_projection_config():
+    config = load_config("configs/flm_joint_work_fullvocab_tsw075_no_i2t_projection.yaml")
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.integrator == "legacy_progress_euler"
+    assert config.sampling.final_decode == "final_model_call"
+    assert config.sampling.final_model_progress == 0.95
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 420700
+    assert config.paths.models_dir.name == "fullvocab_long_tsw075_i2tr06"
+    assert config.paths.runs_dir.name == "fullvocab_long_tsw075_i2tr06_no_i2t_projection"
+
+
+def test_load_projection_progresses_config(tmp_path):
+    raw = yaml.safe_load(Path("configs/smoke.yaml").read_text(encoding="utf-8"))
+    raw["sampling"]["image_to_text_projection"] = "candidate_renoise"
+    raw["sampling"]["image_to_text_projection_progresses"] = [0.5, "0.75"]
+    raw["sampling"]["image_to_text_candidate_score_progress"] = ["0.5", 0.75]
+    raw["sampling"]["image_to_text_candidate_score_num_noise"] = "2"
+    raw["sampling"]["image_to_text_candidate_score_blend_weight"] = "0.25"
+    raw["sampling"]["image_to_text_text_time_schedule"] = "logit_normal"
+    raw["sampling"]["image_to_text_logit_normal_loc"] = "-2.5"
+    raw["sampling"]["image_to_text_logit_normal_scale"] = 1.5
+    raw["model"]["image_summary_to_text"] = True
+    raw["model"]["image_semantic_tokens"] = "1"
+    raw["model"]["image_semantic_source"] = "vq_tokens"
+    raw["train"]["image_to_text_mismatch_weight"] = "0.125"
+    raw["train"]["image_to_text_mismatch_margin"] = "1.5"
+    raw["train"]["stage2_init_checkpoint"] = "models/active/checkpoints/stage2_latest.pt"
+    raw["train"]["image_to_text_label_weight"] = "0.05"
+    raw["train"]["image_to_text_label_text_time"] = "0.25"
+    raw["train"]["image_to_text_semantic_weight"] = "0.5"
+    raw["train"]["image_to_text_semantic_text_time"] = "0.125"
+    raw["train"]["image_to_text_semantic_pool"] = "semantic"
+    raw.setdefault("i2t_llm", {})["feature_pool"] = "semantic"
+    raw["eval"]["isolate_sampling_rng"] = True
+    raw["eval"]["sampling_seed"] = 12345
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    config_path = config_dir / "smoke_multi_projection.yaml"
+    config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert config.sampling.image_to_text_projection_progress == 0.5
+    assert config.sampling.image_to_text_projection_progresses == [0.5, 0.75]
+    assert config.sampling.image_to_text_candidate_score_progress == [0.5, 0.75]
+    assert config.sampling.image_to_text_candidate_score_num_noise == 2
+    assert config.sampling.image_to_text_candidate_score_blend_weight == 0.25
+    assert config.sampling.image_to_text_text_time_schedule == "logit_normal"
+    assert config.sampling.image_to_text_logit_normal_loc == -2.5
+    assert config.sampling.image_to_text_logit_normal_scale == 1.5
+    assert config.model.image_summary_to_text is True
+    assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "vq_tokens"
+    assert config.train.image_to_text_mismatch_weight == 0.125
+    assert config.train.image_to_text_mismatch_margin == 1.5
+    assert config.train.stage2_init_checkpoint == "models/active/checkpoints/stage2_latest.pt"
+    assert config.train.image_to_text_label_weight == 0.05
+    assert config.train.image_to_text_label_text_time == 0.25
+    assert config.train.image_to_text_semantic_weight == 0.5
+    assert config.train.image_to_text_semantic_text_time == 0.125
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
+    assert config.eval.isolate_sampling_rng is True
+    assert config.eval.sampling_seed == 12345
 
 
 def test_load_i2t_power_short_configs():

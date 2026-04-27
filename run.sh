@@ -17,6 +17,7 @@ export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
 export TORCH_HOME="$ROOT/.cache/torch"
 export XDG_CACHE_HOME="$ROOT/.cache/xdg"
 export MPLCONFIGDIR="$ROOT/.cache/matplotlib"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PATH="$ROOT/.cache/uv-bin:$PATH"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
@@ -145,6 +146,159 @@ case "$MODE" in
       esac
     done
     run_cli diagnose-i2t --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  diagnose-i2t-image-dependence)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli diagnose-i2t-image-dependence --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  diagnose-i2t-sampler-trajectory)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli diagnose-i2t-sampler-trajectory --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  diagnose-i2t-understanding)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli diagnose-i2t-understanding --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-i2t-overfit)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-i2t-overfit --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-i2t-sampler-state-ft)
+    CONFIG="configs/default.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-i2t-sampler-state-ft --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-i2t-llm-decoder)
+    CONFIG="configs/flm_joint_work_fullvocab_tsw075_i2t_llm_decoder.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-i2t-llm-decoder --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-label-features)
+    CONFIG="configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-label-features --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-vq-text-decoder)
+    CONFIG="configs/flm_joint_work_siglipvq_text_decoder_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-vq-text-decoder --config "$CONFIG" "${ARGS[@]}"
+    ;;
+  probe-siglipvq-reconstruction)
+    CONFIG="configs/flm_joint_work_siglipvq_generation_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-siglipvq-reconstruction --config "$CONFIG" "${ARGS[@]}"
     ;;
   visualize)
     CONFIG="configs/default.yaml"

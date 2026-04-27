@@ -27,6 +27,33 @@ def test_text_metadata_roundtrip():
     assert torch.equal(restored, torch.tensor([2, 0]))
 
 
+def test_label_text_metadata_uses_atomic_label_tokens():
+    metadata = build_text_metadata(
+        kind="label",
+        label_values=[0, 1, 2],
+        strings=["zero", "one", "two"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+
+    encoded = encode_labels(torch.tensor([2, 0]), metadata)
+
+    assert metadata.seq_len == 3
+    assert metadata.vocab_tokens == ("<pad>", "<bos>", "<eos>", "zero", "one", "two")
+    assert torch.equal(
+        encoded,
+        torch.tensor(
+            [
+                [metadata.bos_id, metadata.vocab_tokens.index("two"), metadata.eos_id],
+                [metadata.bos_id, metadata.vocab_tokens.index("zero"), metadata.eos_id],
+            ]
+        ),
+    )
+    assert decode_text_tokens(encoded, metadata) == ["two", "zero"]
+    assert torch.equal(label_values_from_text_tokens(encoded, metadata), torch.tensor([2, 0]))
+
+
 def test_shifted_label_text_tokens_applies_offset():
     metadata = build_text_metadata(
         kind="char",

@@ -1,12 +1,12 @@
 project:
-  name: uniindex-fullvocab-long-tsw075-i2tr06
+  name: uniindex-fullvocab-long-tsw075-i2tr06-minflm
 
 paths:
   data_dir: data
   artifacts_dir: artifacts/fullvocab_short_shared
   models_dir: models/fullvocab_long_tsw075_i2tr06
-  runs_dir: runs/fullvocab_long_tsw075_i2tr06
-  logs_dir: logs/fullvocab_long_tsw075_i2tr06
+  runs_dir: runs/fullvocab_long_tsw075_i2tr06_minflm
+  logs_dir: logs/fullvocab_long_tsw075_i2tr06_minflm
   cache_dir: .cache
 
 tokenizer:
@@ -68,12 +68,11 @@ sampling:
   image_time_power: 1.0
   text_time_power: 0.25
   image_to_text_text_time_power: 4.0
-  integrator: legacy_progress_euler
-  final_decode: final_model_call
-  final_model_progress: 0.95
+  integrator: scheduled_euler
+  final_decode: last_endpoint
+  final_model_progress: 1.0
   image_to_text_decoder: sample
-  image_to_text_projection: candidate_renoise
-  image_to_text_projection_progress: 0.5
+  image_to_text_projection: none
 
 schedule:
   kind: empirical
@@ -86,3 +85,5 @@ eval:
   classifier_epochs: 2
   classifier_batch_size: 128
   classifier_lr: 0.001
+  isolate_sampling_rng: true
+  sampling_seed: 420700

@@ -1,27 +1,27 @@
 project:
-  name: uniindex-fullvocab-long-tsw075-i2tr06
+  name: uniindex-siglipvq-generation-probe-img512
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts/fullvocab_short_shared
-  models_dir: models/fullvocab_long_tsw075_i2tr06
-  runs_dir: runs/fullvocab_long_tsw075_i2tr06
-  logs_dir: logs/fullvocab_long_tsw075_i2tr06
+  artifacts_dir: artifacts/siglipvq_generation_probe_img512
+  models_dir: models/siglipvq_generation_probe_img512
+  runs_dir: runs/siglipvq_generation_probe_img512
+  logs_dir: logs/siglipvq_generation_probe_img512
   cache_dir: .cache
 
 tokenizer:
-  kind: emu3p5
-  model_name: BAAI/Emu3.5-VisionTokenizer
-  trust_remote_code: true
-  image_size: 256
+  kind: siglip_vq
+  model_name: inclusionAI/LLaDA2.0-Uni
+  trust_remote_code: false
+  image_size: 512
   device: cuda
   dtype: bfloat16
   compact_vocab: false
 
 dataset:
   name: mnist
-  train_limit: 2048
-  test_limit: 256
+  train_limit: 64
+  test_limit: 64
 
 text:
   kind: char
@@ -42,16 +42,16 @@ train:
   device: cuda
   gpu_index: 0
   mixed_precision: null
-  batch_size: 16
-  eval_batch_size: 32
+  batch_size: 4
+  eval_batch_size: 4
   num_workers: 4
   lr: 0.0003
   weight_decay: 0.01
   grad_clip_norm: 1.0
-  stage1_steps: 2000
-  stage2_steps: 5000
+  stage1_steps: 50
+  stage2_steps: 100
   log_every: 20
-  save_every: 200
+  save_every: 100
   joint_weight: 0.5
   text_weight: 1.0
   text_sequence_weight: 0.75
@@ -72,7 +72,7 @@ sampling:
   final_decode: final_model_call
   final_model_progress: 0.95
   image_to_text_decoder: sample
-  image_to_text_projection: candidate_renoise
+  image_to_text_projection: none
   image_to_text_projection_progress: 0.5
 
 schedule:
@@ -82,7 +82,22 @@ schedule:
   min_t: 0.0
 
 eval:
-  num_unconditional_samples: 64
+  num_unconditional_samples: 16
   classifier_epochs: 2
   classifier_batch_size: 128
   classifier_lr: 0.001
+  isolate_sampling_rng: true
+  sampling_seed: 420700
+
+i2t_llm:
+  enabled: false
+  model_name: distilgpt2
+  cache_dir: .cache/huggingface
+  prefix_tokens: 8
+  adapter_hidden_dim: 512
+  source_checkpoint: null
+  train_steps: 200
+  lr: 0.0003
+  prompt: "Digit:"
+  feature_progress: 0.5
+  max_new_tokens: 4

@@ -1,12 +1,12 @@
 project:
-  name: uniindex-fullvocab-long-tsw075-i2tr06
+  name: uniindex-fullvocab-long-tsw075-i2tr06-label-feature-probe
 
 paths:
   data_dir: data
   artifacts_dir: artifacts/fullvocab_short_shared
   models_dir: models/fullvocab_long_tsw075_i2tr06
-  runs_dir: runs/fullvocab_long_tsw075_i2tr06
-  logs_dir: logs/fullvocab_long_tsw075_i2tr06
+  runs_dir: runs/label_feature_probe
+  logs_dir: logs/label_feature_probe
   cache_dir: .cache
 
 tokenizer:
@@ -86,3 +86,18 @@ eval:
   classifier_epochs: 2
   classifier_batch_size: 128
   classifier_lr: 0.001
+  isolate_sampling_rng: true
+  sampling_seed: 420700
+
+i2t_llm:
+  enabled: false
+  model_name: distilgpt2
+  cache_dir: .cache/huggingface
+  prefix_tokens: 8
+  adapter_hidden_dim: 512
+  source_checkpoint: models/fullvocab_long_tsw075_i2tr06/checkpoints/stage2_latest.pt
+  train_steps: 200
+  lr: 0.0001
+  prompt: "Digit:"
+  feature_progress: 0.5
+  max_new_tokens: 4

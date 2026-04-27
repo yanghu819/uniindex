@@ -1,26 +1,26 @@
 project:
-  name: uniindex-fullvocab-long-tsw075-i2tr06
+  name: uniindex-siglipvq-text-decoder-probe
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts/fullvocab_short_shared
-  models_dir: models/fullvocab_long_tsw075_i2tr06
-  runs_dir: runs/fullvocab_long_tsw075_i2tr06
-  logs_dir: logs/fullvocab_long_tsw075_i2tr06
+  artifacts_dir: artifacts/siglipvq_text_decoder_probe
+  models_dir: models/siglipvq_text_decoder_probe
+  runs_dir: runs/siglipvq_text_decoder_probe
+  logs_dir: logs/siglipvq_text_decoder_probe
   cache_dir: .cache
 
 tokenizer:
-  kind: emu3p5
-  model_name: BAAI/Emu3.5-VisionTokenizer
-  trust_remote_code: true
-  image_size: 256
+  kind: siglip_vq
+  model_name: inclusionAI/LLaDA2.0-Uni
+  trust_remote_code: false
+  image_size: 128
   device: cuda
   dtype: bfloat16
   compact_vocab: false
 
 dataset:
   name: mnist
-  train_limit: 2048
+  train_limit: 256
   test_limit: 256
 
 text:
@@ -33,7 +33,7 @@ labels:
 model:
   d_model: 256
   n_heads: 8
-  n_layers: 6
+  n_layers: 2
   mlp_ratio: 4
   dropout: 0.0
 
@@ -72,7 +72,7 @@ sampling:
   final_decode: final_model_call
   final_model_progress: 0.95
   image_to_text_decoder: sample
-  image_to_text_projection: candidate_renoise
+  image_to_text_projection: none
   image_to_text_projection_progress: 0.5
 
 schedule:
@@ -86,3 +86,18 @@ eval:
   classifier_epochs: 2
   classifier_batch_size: 128
   classifier_lr: 0.001
+  isolate_sampling_rng: true
+  sampling_seed: 420700
+
+i2t_llm:
+  enabled: false
+  model_name: distilgpt2
+  cache_dir: .cache/huggingface
+  prefix_tokens: 8
+  adapter_hidden_dim: 512
+  source_checkpoint: null
+  train_steps: 200
+  lr: 0.0003
+  prompt: "Digit:"
+  feature_progress: 0.5
+  max_new_tokens: 4
