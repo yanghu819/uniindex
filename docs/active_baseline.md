@@ -967,6 +967,33 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
 - Decision: do not promote any balanced `300`-step case. Increasing t2i ratio moves the generated token distribution in the right direction, but it does not create class-conditioned generation: every conditioned sample is still classified as label `9`, and the t2i token-label guard stays at chance.
 - Lesson: the schedule ratio alone is too weak. This does not refute the semantic-vqtoken unified path, because i2t remains strong and t2i collapse is partially softened. The next generation-side experiment should target the image-token endpoint distribution directly: either add image-position dense/simplex or soft distribution supervision for t2i, or run a longer t2i-heavy checkpoint curve while keeping a strict i2t early-stop guard.
 
+## Recent distributional t2i endpoint probe
+
+- Run window: `2026-04-27T13:24:21Z` to `2026-04-27T13:31:07Z` (`2026-04-27 21:24:21-21:31:07 CST`).
+- Code states:
+  - GitHub SHA `9afb8ce0aeedd94e8fa975f59002a7fe60ef1055`: added `probe-t2i-distributional-ft`.
+  - GitHub SHA `b52ae2c9cba13ab347825cd5a49a9f48ccf4ca16`: removed optimizer state from probe checkpoints after the first full run hit filesystem `D` state while saving large AdamW payloads.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/t2i_distributional/20260427T212800Z-distributional-endpoint-liteckpt/summary.json`.
+- Method:
+  - start from `models/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/checkpoints/stage2_latest.pt`
+  - train only t2i probe checkpoints for `500` steps
+  - use image-only dense simplex state: `p_t = (1 - t) * uniform + t * one_hot(image_token)`, with text clean conditioned
+  - use endpoint-heavy sampling with `endpoint_prob = 0.9`
+  - compare `simplex_hard_ce` against `simplex_set_ce_k16`
+  - evaluate checkpoints at steps `0`, `100`, `300`, and `500` with token guard; run `diagnose-i2t` on each case best checkpoint
+- Token-generation results:
+  - `simplex_hard_ce`: conditioned token-label `0.15000000596046448`, predicted histogram `{"1": 2, "2": 38}`, unique token count `94`, avg unique/sample `49.125`, hist L1 `0.8945251703262329`, uncond consistency `0.800000011920929`
+  - `simplex_set_ce_k16`: conditioned token-label `0.20000000298023224`, predicted histogram `{"2": 7, "3": 11, "7": 20, "9": 2}`, unique token count `445`, avg unique/sample `170.77499389648438`, hist L1 `0.5438934564590454`, uncond consistency `0.5`
+- i2t diagnostics after best checkpoint:
+  - `simplex_hard_ce`: progress `0.5` exact/label/token `0.2265625 / 0.2265625 / 0.61328125`; progress `0.9` `0.2265625 / 0.2265625 / 0.61328125`; progress `0.95` `0.234375 / 0.234375 / 0.6171875`
+  - `simplex_set_ce_k16`: progress `0.5` exact/label/token `0.2734375 / 0.2734375 / 0.63671875`; progress `0.9` `0.28125 / 0.296875 / 0.640625`; progress `0.95` `0.25 / 0.25 / 0.625`
+- Decision: do not promote either checkpoint and do not pixel-decode. `set_ce_k16` is a real improvement over hard CE on diversity and token histogram (`unique 445`, hist L1 `0.54`), but conditioned label accuracy is still only `0.20`, and i2t exact/label is far below the `0.6` unified-candidate threshold.
+- Insight: the one-to-many hard-target issue is real but not the whole bottleneck. Dense/simplex state plus set-CE stops the single-token collapse and makes generated tokens look more like the real token marginal, yet text conditioning is still weak. The remaining bottleneck is likely class-conditioned control over a long `1024`-token image sequence, not pixel decoding and not schedule ratio alone.
+- Silent fallbacks:
+  - Local `git push`/`ls-remote` hung after the checkpoint-trim commit, so the fix was pushed through the GitHub Git Database API without writing credentials to the repo.
+  - The first full remote run launched twice and hit uninterruptible checkpoint I/O; both stale processes were stopped, the optimizer state was removed from probe checkpoints, and the clean `liteckpt` run was restarted from a fresh run stamp.
+- Next action: stop trying pixel decode and stop broad schedule sweeps. The next useful probe should target conditional control over long image-token sequences: either image-token compression/block-wise generation, a dedicated image endpoint head, or set-CE plus an explicit label-conditional contrast/energy term that penalizes generated-token classifier mismatch.
+
 ## Archived local trees
 
 - `visualize-joint-work`
