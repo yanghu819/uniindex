@@ -914,6 +914,38 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
 - Decision: generation is broken before pixel decoding. Do not spend the next loop on the SigLIP-VQ pixel decoder; it is slow but not the primary failure. The immediate bottleneck is that FLM does not learn a non-degenerate `text -> SigLIP-VQ token distribution` under the short semantic-token training recipe.
 - Next action: run a generation-specific FLM probe that removes the i2t-heavy auxiliary pressure and directly overfits `text -> SigLIP-VQ tokens` on a tiny fixed set. If it cannot overfit, the target/schedule/state parameterization is wrong; if it overfits but fails held-out, add data/regularization. Pixel decode should only be used after token-level generation is non-degenerate.
 
+## Recent text-to-SigLIP-VQ overfit and rebalance probe
+
+- Run window: `2026-04-27T09:10:20Z` to `2026-04-27T09:23:31Z` (`2026-04-27 17:10:20-17:23:31 CST`).
+- Code state: GitHub SHA `16206131b9802ab7ab403c52d4f61d27a0a5284a`.
+- New command: `./run.sh probe-t2i-overfit --config <config>`.
+- Overfit config: `configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml`.
+- Best overfit summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/20260427T091450Z-probe-t2i-overfit/t2i_overfit_summary.json`.
+- Fixed 16-sample overfit result:
+  - Step `0`: sampler-generated image tokens are fully collapsed, `generated_unique_token_count = 1`, train token-label accuracy `0.0625`.
+  - Step `300`: train token-label accuracy `0.6875`, test fixed token-label accuracy `0.625`, direct denoiser token accuracy at progress `0.9` is `0.752197265625`.
+  - Step `800`: train token-label accuracy `0.9375`, test fixed token-label accuracy `0.9375`, direct denoiser token accuracy at progress `0.9` is `0.974365234375`.
+  - Real-token classifier sanity stayed `0.859375`.
+- Lesson: FLM can learn `text -> SigLIP-VQ tokens` when that route is directly optimized. The earlier single-token collapse is not a hard capacity limit and not a pixel-decoder problem.
+- Rebalance config: `configs_generated/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_t2i_ft800.yaml`.
+  - Starts from `models/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/checkpoints/stage2_latest.pt`.
+  - Runs `800` stage2 steps with schedule `text_to_image` only.
+  - Writes to `models/runs/logs/siglipvq_generation_labeltoken_semantic_vqtoken_t2i_ft800_img512`.
+- Rebalance token guard summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_t2i_ft800_img512/20260427T092223Z-probe-t2i-token-guard/summary.json`.
+- Rebalance token result:
+  - `conditioned_token_label_accuracy = 0.25`.
+  - `conditioned_token_pred_histogram = {"0": 16, "2": 4, "3": 5, "7": 1, "9": 14}`.
+  - `generated_unique_token_count = 138`.
+  - `generated_avg_unique_tokens_per_sample = 78.44999694824219`.
+  - `generated_vs_real_test_token_histogram_l1 = 0.6529815793037415`.
+  - This is clearly less collapsed than the prior semantic-vqtoken checkpoint (`generated_unique_token_count = 1`, histogram L1 `1.7437744140625`), but still not a good text-conditioned generator.
+- Rebalance i2t diagnostic summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_t2i_ft800_img512/20260427T092325Z-diagnose-i2t/i2t_diagnostics.json`.
+  - Progress `0.5`: exact `0.1015625`, token `0.55078125`, constrained label `0.421875`.
+  - Progress `0.9`: exact `0.0546875`, token `0.52734375`, constrained label `0.2265625`.
+  - Progress `0.95`: exact `0.09375`, token `0.546875`, constrained label `0.171875`.
+- Decision: pure t2i FT partially fixes token collapse but destroys the understanding path. Do not promote the t2i-only checkpoint.
+- Next action: train a balanced two-phase or interleaved schedule that preserves the semantic i2t bottleneck while giving t2i enough dedicated steps. Minimum next probe should compare `t2i:i2t_semantic` schedules like `1:1`, `2:1`, and `4:1`, with token guard plus `diagnose-i2t` after each; do not return to pixel decode until token guard exceeds `0.6` without collapsing i2t below `0.6`.
+
 ## Archived local trees
 
 - `visualize-joint-work`
