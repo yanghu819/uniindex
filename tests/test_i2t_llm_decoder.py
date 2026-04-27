@@ -25,6 +25,20 @@ class FakeCausalLM(nn.Module):
         return SimpleNamespace(logits=logits)
 
 
+class FixedFeatureDenoiser(nn.Module):
+    def __init__(self, layout: TaskLayout, hidden_dim: int) -> None:
+        super().__init__()
+        self.layout = layout
+        self.hidden_dim = hidden_dim
+
+    def forward_features(self, z_t, t, modality_ids):
+        del t, modality_ids
+        hidden = torch.zeros(z_t.shape[0], self.layout.seq_len, self.hidden_dim, device=z_t.device)
+        hidden[:, self.layout.image_slice] = 1.0
+        hidden[:, self.layout.text_slice] = 3.0
+        return hidden
+
+
 def test_soft_prefix_adapter_shape():
     adapter = SoftPrefixAdapter(input_dim=4, hidden_dim=7, prefix_tokens=3, output_dim=5)
     output = adapter(torch.randn(2, 4))
@@ -104,3 +118,28 @@ def test_extract_i2t_image_features_returns_backward_compatible_tensor():
     loss = adapter(features).sum()
     loss.backward()
     assert any(parameter.grad is not None for parameter in adapter.parameters())
+
+
+def test_extract_i2t_image_features_can_pool_text_hidden():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    config = SimpleNamespace(
+        i2t_llm=SimpleNamespace(feature_progress=0.5, feature_pool="text"),
+        sampling=SimpleNamespace(
+            image_time_power=1.0,
+            text_time_power=1.0,
+            image_to_text_text_time_power=1.0,
+            image_to_text_text_time_schedule="power",
+            image_to_text_logit_normal_loc=0.0,
+            image_to_text_logit_normal_scale=1.0,
+        ),
+    )
+
+    features = extract_i2t_image_features(
+        denoiser=FixedFeatureDenoiser(layout, hidden_dim=5),
+        config=config,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        image_tokens=torch.tensor([[0, 1], [2, 0]]),
+    )
+
+    assert torch.equal(features, torch.full((2, 5), 3.0))
