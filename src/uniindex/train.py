@@ -168,7 +168,7 @@ def _image_to_text_semantic_label_loss(
         condition_text=False,
     )
     z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
-    hidden = model.forward_features(z_t, t_pos, modality_ids)
+    hidden = model.forward_features(z_t, t_pos, modality_ids, include_extra_tokens=pool == "semantic")
     pooled = _pool_semantic_hidden(hidden, layout, pool)
     class_targets = _labels_to_class_indices(labels, label_values)
     return F.cross_entropy(label_head(pooled), class_targets)
@@ -181,6 +181,10 @@ def _pool_semantic_hidden(hidden: torch.Tensor, layout: TaskLayout, pool: str) -
         return hidden[:, layout.text_slice].mean(dim=1)
     if pool == "all":
         return hidden.mean(dim=1)
+    if pool == "semantic":
+        if hidden.shape[1] <= layout.seq_len:
+            raise ValueError("semantic feature pool requires model.image_semantic_tokens > 0")
+        return hidden[:, layout.seq_len :].mean(dim=1)
     raise ValueError(f"unsupported semantic feature pool: {pool}")
 
 
@@ -413,6 +417,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
         image_summary_to_text=config.model.image_summary_to_text,
+        image_semantic_tokens=config.model.image_semantic_tokens,
     ).to(device)
 
     if stage == "stage2":

@@ -60,6 +60,7 @@ class ModelConfig:
     mlp_ratio: int
     dropout: float
     image_summary_to_text: bool = False
+    image_semantic_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -267,7 +268,7 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"image_to_text_semantic_text_time must be in [0, 1], got {semantic_text_time}")
     normalized["image_to_text_semantic_text_time"] = semantic_text_time
     semantic_pool = str(normalized["image_to_text_semantic_pool"])
-    if semantic_pool not in {"image", "text", "all"}:
+    if semantic_pool not in {"image", "text", "all", "semantic"}:
         raise ValueError(f"unsupported image_to_text_semantic_pool: {semantic_pool}")
     normalized["image_to_text_semantic_pool"] = semantic_pool
     return normalized
@@ -280,6 +281,11 @@ def _normalize_model_config(raw_model: dict[str, Any]) -> dict[str, Any]:
     if isinstance(image_summary_to_text, str):
         image_summary_to_text = image_summary_to_text.lower() in {"1", "true", "yes", "on"}
     normalized["image_summary_to_text"] = bool(image_summary_to_text)
+    normalized.setdefault("image_semantic_tokens", 0)
+    image_semantic_tokens = int(normalized["image_semantic_tokens"])
+    if image_semantic_tokens < 0:
+        raise ValueError(f"model.image_semantic_tokens must be >= 0, got {image_semantic_tokens}")
+    normalized["image_semantic_tokens"] = image_semantic_tokens
     return normalized
 
 
@@ -418,7 +424,7 @@ def _normalize_i2t_llm_config(raw: dict[str, Any]) -> dict[str, Any]:
     normalized["feature_progress"] = feature_progress
 
     feature_pool = str(normalized["feature_pool"])
-    if feature_pool not in {"image", "text", "all"}:
+    if feature_pool not in {"image", "text", "all", "semantic"}:
         raise ValueError(f"unsupported i2t_llm.feature_pool: {feature_pool}")
     normalized["feature_pool"] = feature_pool
 
