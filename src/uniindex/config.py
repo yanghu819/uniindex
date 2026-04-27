@@ -61,6 +61,7 @@ class ModelConfig:
     dropout: float
     image_summary_to_text: bool = False
     image_semantic_tokens: int = 0
+    image_semantic_source: str = "hidden"
 
 
 @dataclass(frozen=True)
@@ -286,6 +287,11 @@ def _normalize_model_config(raw_model: dict[str, Any]) -> dict[str, Any]:
     if image_semantic_tokens < 0:
         raise ValueError(f"model.image_semantic_tokens must be >= 0, got {image_semantic_tokens}")
     normalized["image_semantic_tokens"] = image_semantic_tokens
+    normalized.setdefault("image_semantic_source", "hidden")
+    image_semantic_source = str(normalized["image_semantic_source"])
+    if image_semantic_source not in {"hidden", "vq_tokens"}:
+        raise ValueError(f"unsupported model.image_semantic_source: {image_semantic_source}")
+    normalized["image_semantic_source"] = image_semantic_source
     return normalized
 
 
