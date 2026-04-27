@@ -89,6 +89,7 @@ def _build_denoiser(config: ProjectConfig, layout: TaskLayout, device: torch.dev
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
+        image_summary_to_text=config.model.image_summary_to_text,
     ).to(device)
 
 
@@ -223,7 +224,14 @@ def extract_i2t_image_features(
         condition_text=False,
     )
     features = denoiser.forward_features(z_t, t_pos, modality_ids)
-    return features[:, layout.image_slice].mean(dim=1)
+    feature_pool = getattr(config.i2t_llm, "feature_pool", "image")
+    if feature_pool == "image":
+        return features[:, layout.image_slice].mean(dim=1)
+    if feature_pool == "text":
+        return features[:, layout.text_slice].mean(dim=1)
+    if feature_pool == "all":
+        return features.mean(dim=1)
+    raise ValueError(f"unsupported i2t_llm.feature_pool: {feature_pool}")
 
 
 def _target_token_ids(labels: torch.Tensor, assets: LLMAssets) -> tuple[torch.Tensor, torch.Tensor]:

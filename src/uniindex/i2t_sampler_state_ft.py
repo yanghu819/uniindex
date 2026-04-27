@@ -81,6 +81,7 @@ def _build_model(config: ProjectConfig, layout: TaskLayout, device: torch.device
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
+        image_summary_to_text=config.model.image_summary_to_text,
     ).to(device)
 
 

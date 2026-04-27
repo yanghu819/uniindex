@@ -153,6 +153,7 @@ def _image_to_text_semantic_label_loss(
     layout: TaskLayout,
     valid_token_mask: torch.Tensor,
     text_time: float,
+    pool: str = "image",
 ) -> torch.Tensor:
     t_pos = torch.full(
         (x1.shape[0], layout.seq_len),
@@ -168,9 +169,19 @@ def _image_to_text_semantic_label_loss(
     )
     z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
     hidden = model.forward_features(z_t, t_pos, modality_ids)
-    pooled_image = hidden[:, layout.image_slice].mean(dim=1)
+    pooled = _pool_semantic_hidden(hidden, layout, pool)
     class_targets = _labels_to_class_indices(labels, label_values)
-    return F.cross_entropy(label_head(pooled_image), class_targets)
+    return F.cross_entropy(label_head(pooled), class_targets)
+
+
+def _pool_semantic_hidden(hidden: torch.Tensor, layout: TaskLayout, pool: str) -> torch.Tensor:
+    if pool == "image":
+        return hidden[:, layout.image_slice].mean(dim=1)
+    if pool == "text":
+        return hidden[:, layout.text_slice].mean(dim=1)
+    if pool == "all":
+        return hidden.mean(dim=1)
+    raise ValueError(f"unsupported semantic feature pool: {pool}")
 
 
 def _image_text_mismatch_loss(
@@ -401,6 +412,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
+        image_summary_to_text=config.model.image_summary_to_text,
     ).to(device)
 
     if stage == "stage2":
@@ -483,6 +495,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
                 layout=layout,
                 valid_token_mask=valid_token_mask,
                 text_time=config.train.image_to_text_semantic_text_time,
+                pool=config.train.image_to_text_semantic_pool,
             )
             loss = loss + config.train.image_to_text_semantic_weight * semantic_label_loss
         parts["semantic_label_loss"] = float(semantic_label_loss.item())

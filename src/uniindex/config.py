@@ -59,6 +59,7 @@ class ModelConfig:
     n_layers: int
     mlp_ratio: int
     dropout: float
+    image_summary_to_text: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ class TrainConfig:
     image_to_text_label_text_time: float = 0.0
     image_to_text_semantic_weight: float = 0.0
     image_to_text_semantic_text_time: float = 0.0
+    image_to_text_semantic_pool: str = "image"
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,7 @@ class I2TLLMConfig:
     lr: float = 1e-4
     prompt: str = "Digit:"
     feature_progress: float = 0.5
+    feature_pool: str = "image"
     max_new_tokens: int = 4
 
 
@@ -231,6 +234,7 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("image_to_text_label_text_time", 0.0)
     normalized.setdefault("image_to_text_semantic_weight", 0.0)
     normalized.setdefault("image_to_text_semantic_text_time", 0.0)
+    normalized.setdefault("image_to_text_semantic_pool", "image")
     cap = normalized["image_to_text_text_time_cap"]
     if cap is not None and not 0.0 <= float(cap) <= 1.0:
         raise ValueError(f"image_to_text_text_time_cap must be in [0, 1], got {cap}")
@@ -262,6 +266,20 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     if not 0.0 <= semantic_text_time <= 1.0:
         raise ValueError(f"image_to_text_semantic_text_time must be in [0, 1], got {semantic_text_time}")
     normalized["image_to_text_semantic_text_time"] = semantic_text_time
+    semantic_pool = str(normalized["image_to_text_semantic_pool"])
+    if semantic_pool not in {"image", "text", "all"}:
+        raise ValueError(f"unsupported image_to_text_semantic_pool: {semantic_pool}")
+    normalized["image_to_text_semantic_pool"] = semantic_pool
+    return normalized
+
+
+def _normalize_model_config(raw_model: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(raw_model)
+    normalized.setdefault("image_summary_to_text", False)
+    image_summary_to_text = normalized["image_summary_to_text"]
+    if isinstance(image_summary_to_text, str):
+        image_summary_to_text = image_summary_to_text.lower() in {"1", "true", "yes", "on"}
+    normalized["image_summary_to_text"] = bool(image_summary_to_text)
     return normalized
 
 
@@ -371,6 +389,7 @@ def _normalize_i2t_llm_config(raw: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("lr", 1e-4)
     normalized.setdefault("prompt", "Digit:")
     normalized.setdefault("feature_progress", 0.5)
+    normalized.setdefault("feature_pool", "image")
     normalized.setdefault("max_new_tokens", 4)
 
     prefix_tokens = int(normalized["prefix_tokens"])
@@ -397,6 +416,11 @@ def _normalize_i2t_llm_config(raw: dict[str, Any]) -> dict[str, Any]:
     if not 0.0 <= feature_progress <= 1.0:
         raise ValueError(f"i2t_llm.feature_progress must be in [0, 1], got {feature_progress}")
     normalized["feature_progress"] = feature_progress
+
+    feature_pool = str(normalized["feature_pool"])
+    if feature_pool not in {"image", "text", "all"}:
+        raise ValueError(f"unsupported i2t_llm.feature_pool: {feature_pool}")
+    normalized["feature_pool"] = feature_pool
 
     max_new_tokens = int(normalized["max_new_tokens"])
     if max_new_tokens < 1:
@@ -427,7 +451,7 @@ def load_config(path: str | Path) -> ProjectConfig:
         dataset=DatasetConfig(**raw["dataset"]),
         text=TextConfig(**_normalize_text_config(raw)),
         labels=LabelsConfig(**raw["labels"]),
-        model=ModelConfig(**raw["model"]),
+        model=ModelConfig(**_normalize_model_config(raw["model"])),
         train=TrainConfig(**_normalize_train_config(raw["train"])),
         sampling=SamplingConfig(**_normalize_sampling_config(raw["sampling"])),
         schedule=ScheduleConfig(**_normalize_schedule_config(raw)),
