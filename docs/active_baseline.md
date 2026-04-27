@@ -856,6 +856,32 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
 - Remaining gap: this run intentionally skipped slow generated-image eval. The next experiment must verify the full unified path: free i2t sampling with the semantic token enabled, plus text-to-SigLIP-VQ generation and unconditional consistency under a practical cached/batched renderer.
 - Next action: make the semantic-token route part of the normal SigLIP-VQ generation config, run a small eval that reports i2t diagnostics and t2i/unconditional metrics, and only then decide whether to lengthen training.
 
+## Recent SigLIP-VQ semantic-token full guard
+
+- Run window: `2026-04-27T06:30:49Z` to `2026-04-27T07:17:08Z` (`2026-04-27 14:30:49-15:17:08 CST`).
+- Code state: GitHub SHA `43b21a2ca99302767abd0ad7a2254d8ae725f7b3`.
+- Runtime config: `configs_generated/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_fullguard_t16_u4.yaml`.
+- Remote summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/semantic_vqtoken_full_guard/20260427T063048Z-fullguard-t16-u4/summary.json`.
+- Guard size: test limit `16`, unconditional samples `4`, eval batch size `4`. This was intentionally small because SigLIP-VQ pixel decoding is still slow.
+- Eval metrics:
+  - `tokenizer_ceiling = 1.0`
+  - `image_to_text_exact_match = 0.75`
+  - `image_to_text_token_accuracy = 0.875`
+  - `image_to_text_label_accuracy_constrained = 0.75`
+  - `text_to_image_accuracy = 0.0`
+  - `unconditional_consistency = 0.0`
+- `diagnose-i2t` metrics:
+  - Progress `0.5`: exact `0.875`, token `0.9375`, constrained label `0.875`.
+  - Progress `0.9`: exact `0.75`, token `0.875`, constrained label `0.75`.
+  - Progress `0.95`: exact `0.75`, token `0.875`, constrained label `0.75`.
+- Label-feature probe:
+  - Direct VQ-token head `0.9375`.
+  - FLM semantic hidden `0.9375`.
+- Run-control note: eval wrote `metrics.json`, `diagnostics.json`, and `text_preview.json`, but the eval process did not exit cleanly after pixel decoding. It was stopped and metadata was marked `stopped_after_eval_metrics_cleanup_hang`; the non-pixel diagnostics were then run separately and included in the summary.
+- Renderer note: this small guard still took about 25 minutes for only 16 test samples because `SiglipVQVisionTokenizer.decode_token_batch` decodes rows one by one and reloads decoder components repeatedly. Do not use full pixel eval as the inner loop until this is fixed.
+- Decision: understanding is now real, but unified generation is not. The semantic token solves `image -> text` on SigLIP-VQ, but it does not make `text -> SigLIP-VQ tokens -> image` work; t2i and unconditional consistency are both zero on the pixel guard.
+- Next action: stop evaluating generation primarily through slow pixel decode. Add a fast token-level generation guard: train or reuse a frozen VQ-token label classifier, score generated image tokens before pixel decoding, and decode only a tiny visual grid for inspection. In parallel, cache or batch the SigLIP-VQ decoder so pixel eval is a final confirmation step, not the optimization loop.
+
 ## Archived local trees
 
 - `visualize-joint-work`
