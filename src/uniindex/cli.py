@@ -24,6 +24,7 @@ from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
 from .label_feature_probe import run_label_feature_probe
 from .siglipvq_reconstruction import probe_siglipvq_reconstruction
 from .t2i_overfit import run_t2i_overfit_probe
+from .t2i_distributional_ft import run_t2i_distributional_ft_probe
 from .t2i_token_guard import run_t2i_token_guard
 from .tokenizer import download_siglip_vq_assets, download_siglip_vq_decoder_assets
 from .vq_text_decoder import run_vq_text_decoder_probe
@@ -146,6 +147,21 @@ def _parser() -> argparse.ArgumentParser:
     probe_t2i_overfit.add_argument("--token-probe-steps", type=int, default=100)
     probe_t2i_overfit.add_argument("--unconditional-count", type=int, default=8)
     probe_t2i_overfit.add_argument("--save-model", action="store_true")
+
+    probe_t2i_distributional_ft = subparsers.add_parser("probe-t2i-distributional-ft")
+    probe_t2i_distributional_ft.add_argument("--config", required=True)
+    probe_t2i_distributional_ft.add_argument("--steps", type=int, default=500)
+    probe_t2i_distributional_ft.add_argument("--loss-kind", choices=["hard_ce", "set_ce_k16"], default="hard_ce")
+    probe_t2i_distributional_ft.add_argument("--state-kind", choices=["simplex"], default="simplex")
+    probe_t2i_distributional_ft.add_argument("--set-size", type=int, default=16)
+    probe_t2i_distributional_ft.add_argument("--set-temperature", type=float, default=0.25)
+    probe_t2i_distributional_ft.add_argument("--endpoint-prob", type=float, default=0.9)
+    probe_t2i_distributional_ft.add_argument("--lr", type=float)
+    probe_t2i_distributional_ft.add_argument("--eval-step", action="append", type=int, dest="eval_steps")
+    probe_t2i_distributional_ft.add_argument("--token-probe-steps", type=int, default=200)
+    probe_t2i_distributional_ft.add_argument("--token-probe-eval-every", type=int, default=50)
+    probe_t2i_distributional_ft.add_argument("--samples-per-label", type=int, default=4)
+    probe_t2i_distributional_ft.add_argument("--unconditional-count", type=int, default=10)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -537,6 +553,49 @@ def _run_probe_t2i_overfit(
     return 0
 
 
+def _run_probe_t2i_distributional_ft(
+    *,
+    config_path: str,
+    steps: int,
+    loss_kind: str,
+    state_kind: str,
+    set_size: int,
+    set_temperature: float,
+    endpoint_prob: float,
+    lr: float | None,
+    eval_steps: list[int] | None,
+    token_probe_steps: int,
+    token_probe_eval_every: int,
+    samples_per_label: int,
+    unconditional_count: int,
+) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-t2i-distributional-ft")
+    try:
+        run_t2i_distributional_ft_probe(
+            config=config,
+            steps=steps,
+            loss_kind=loss_kind,
+            state_kind=state_kind,
+            set_size=set_size,
+            set_temperature=set_temperature,
+            endpoint_prob=endpoint_prob,
+            lr=lr,
+            eval_steps=tuple(eval_steps) if eval_steps else None,
+            token_probe_steps=token_probe_steps,
+            token_probe_eval_every=token_probe_eval_every,
+            samples_per_label=samples_per_label,
+            unconditional_count=unconditional_count,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -703,6 +762,22 @@ def main(argv: list[str] | None = None) -> int:
             token_probe_steps=args.token_probe_steps,
             unconditional_count=args.unconditional_count,
             save_model=args.save_model,
+        )
+    if args.command == "probe-t2i-distributional-ft":
+        return _run_probe_t2i_distributional_ft(
+            config_path=args.config,
+            steps=args.steps,
+            loss_kind=args.loss_kind,
+            state_kind=args.state_kind,
+            set_size=args.set_size,
+            set_temperature=args.set_temperature,
+            endpoint_prob=args.endpoint_prob,
+            lr=args.lr,
+            eval_steps=args.eval_steps,
+            token_probe_steps=args.token_probe_steps,
+            token_probe_eval_every=args.token_probe_eval_every,
+            samples_per_label=args.samples_per_label,
+            unconditional_count=args.unconditional_count,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)
