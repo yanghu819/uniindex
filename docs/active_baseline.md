@@ -751,7 +751,51 @@
 
 Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline.
 
-The label-feature probe and direct text-decoder probe shift the next priority away from sampler-only work. SigLIP-VQ clears both cheap semantic gates: VQ-label accuracy `0.69921875` versus `0.2734375` for Emu3.5 VQ, and direct text-decoder free exact `0.86328125` with shuffled-image candidate accuracy near chance. The next i2t-focused run should scale this path rather than tuning the old Emu-token sampler: use more train/test samples, then wire a two-stream model where Emu3.5 tokens keep the generation branch and SigLIP-VQ tokens/features feed the understanding/text branch. Keep `probe-label-features`, `probe-vq-text-decoder`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop. Pinning or vendoring the Emu3.5 tokenizer remote code is still required before longer unattended Emu-token runs.
+The label-feature probe and direct text-decoder probe shift the next priority away from sampler-only work. SigLIP-VQ clears both cheap semantic gates: VQ-label accuracy `0.69921875` on the earlier 256px gate, and direct text-decoder free exact `0.86328125` with shuffled-image candidate accuracy near chance. The current failure is not "VQ has no understanding signal"; it is that the unified FLM hidden path is not preserving that signal for text generation. Keep `probe-label-features`, `probe-vq-text-decoder`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop.
+
+## Recent SigLIP-VQ label-token FLM iteration
+
+- Run window: `2026-04-27T03:18:09Z` to `2026-04-27T03:51:38Z` (`2026-04-27 11:18:09-11:51:38 CST`).
+- Code states:
+  - `73a67e6`: atomic label text mode (`text.kind = label`).
+  - `a4cec98`: train-only pooled-image-hidden semantic auxiliary (`image_to_text_semantic_weight`).
+- Local validation:
+  - `.venv/bin/python -m pytest tests/test_config.py tests/test_train_schedule.py -q` -> `30 passed`.
+  - `.venv/bin/ruff check src/uniindex/train.py src/uniindex/config.py tests/test_config.py tests/test_train_schedule.py` -> passed.
+  - `.venv/bin/python -m pytest -q` -> `103 passed, 1 warning`.
+- Atomic label-token baseline:
+  - Config: `configs/flm_joint_work_siglipvq_generation_labeltoken_probe.yaml`.
+  - Diagnose path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_probe_img512/20260427T031809Z-diagnose-i2t/i2t_diagnostics.json`.
+  - Result: all progress values produced only `nine`; exact/label `0.109375`, token `0.5546875`.
+- Atomic label-token overfit probes:
+  - CE-only path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_probe_img512/20260427T031814Z-probe-i2t-overfit/overfit_summary.json`.
+  - CE-only final train true-image exact/label `0.625`, shuffled `0.0`; held-out true-image exact/label `0.0625`.
+  - Label-weight path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_probe_img512/20260427T032229Z-probe-i2t-overfit/overfit_summary.json`.
+  - `label_weight=1.0` final train true-image exact/label `0.8125`, shuffled `0.0`; held-out true-image exact/label `0.1875`, shuffled `0.0625`.
+  - Lesson: fixed-sample image binding is learnable; the blocker is held-out generalization, not token spelling.
+- Larger label-token short train:
+  - Generated config: `configs_generated/flm_joint_work_siglipvq_generation_labeltoken_probe_train512_labelw1.yaml`.
+  - Diagnose path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_probe_img512_train512_labelw1/20260427T033050Z-diagnose-i2t/i2t_diagnostics.json`.
+  - Result: all progress values produced only `one`; exact/label `0.1171875`, token `0.55859375`.
+  - Feature probe path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_probe_img512_train512_labelw1/20260427T033155Z-probe-label-features/summary.json`.
+  - Same split probe: direct VQ-token head reached `0.90625` test accuracy, while frozen FLM hidden reached only `0.1484375` best and `0.1171875` final.
+  - Lesson: the SigLIP-VQ token sequence contains strong label information, but the trained unified FLM hidden path is nearly class-prior level.
+- Pooled semantic auxiliary:
+  - Config: `configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_probe.yaml`.
+  - Commit: `a4cec98`.
+  - Diagnose path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_probe_img512/20260427T034526Z-diagnose-i2t/i2t_diagnostics.json`.
+  - Result: unchanged single-label collapse to `one`; exact/label `0.1171875`, token `0.55859375`.
+  - Feature probe path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_probe_img512/20260427T034532Z-probe-label-features/summary.json`.
+  - Direct VQ-token head `0.9140625`; FLM hidden best `0.1484375`, final `0.1171875`.
+  - Train log: `semantic_label_loss` stayed near random-class CE (`~2.18-2.45`).
+- Strong semantic/i2t-only control:
+  - Generated config: `configs_generated/flm_joint_work_siglipvq_generation_labeltoken_semantic_w10_i2tonly.yaml`.
+  - Diagnose path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_w10_i2tonly_img512/20260427T035133Z-diagnose-i2t/i2t_diagnostics.json`.
+  - Result: unchanged single-label collapse to `one`; exact/label `0.1171875`, token `0.55859375`.
+  - Feature probe path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_w10_i2tonly_img512/20260427T035138Z-probe-label-features/summary.json`.
+  - Direct VQ-token head `0.90625`; FLM hidden best `0.1484375`, final `0.1171875`.
+  - Train log: even `semantic_weight=10.0` with i2t-only stage2 left `semantic_label_loss` around `2.13-2.44`.
+- Decision: do not promote label-token, plain label loss, or the pooled semantic auxiliary. They prove the current hidden path is not a good semantic bottleneck. The next algorithmic iteration should change the representation path, not add another sampler fallback: add an explicit global image summary route such as a CLS/summary token or dedicated image-to-text conditioning prefix inside the unified FLM, then require the same VQ-token-vs-FLM-hidden probe to show FLM hidden label accuracy moves well above chance before running longer generation experiments.
 
 ## Archived local trees
 
