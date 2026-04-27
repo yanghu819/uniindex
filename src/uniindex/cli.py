@@ -23,6 +23,7 @@ from .i2t_sampler_state_ft import run_i2t_sampler_state_ft
 from .i2t_llm_decoder import download_i2t_llm_assets, run_i2t_llm_decoder_probe
 from .label_feature_probe import run_label_feature_probe
 from .siglipvq_reconstruction import probe_siglipvq_reconstruction
+from .t2i_overfit import run_t2i_overfit_probe
 from .t2i_token_guard import run_t2i_token_guard
 from .tokenizer import download_siglip_vq_assets, download_siglip_vq_decoder_assets
 from .vq_text_decoder import run_vq_text_decoder_probe
@@ -133,6 +134,18 @@ def _parser() -> argparse.ArgumentParser:
     probe_t2i_token_guard.add_argument("--unconditional-count", type=int, default=32)
     probe_t2i_token_guard.add_argument("--decode-samples", type=int, default=0)
     probe_t2i_token_guard.add_argument("--lr", type=float)
+
+    probe_t2i_overfit = subparsers.add_parser("probe-t2i-overfit")
+    probe_t2i_overfit.add_argument("--config", required=True)
+    probe_t2i_overfit.add_argument("--steps", type=int, default=200)
+    probe_t2i_overfit.add_argument("--sample-count", type=int, default=16)
+    probe_t2i_overfit.add_argument("--test-sample-count", type=int, default=16)
+    probe_t2i_overfit.add_argument("--lr", type=float)
+    probe_t2i_overfit.add_argument("--eval-every", type=int, default=50)
+    probe_t2i_overfit.add_argument("--progress", action="append", type=float, dest="progress_values")
+    probe_t2i_overfit.add_argument("--token-probe-steps", type=int, default=100)
+    probe_t2i_overfit.add_argument("--unconditional-count", type=int, default=8)
+    probe_t2i_overfit.add_argument("--save-model", action="store_true")
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -487,6 +500,43 @@ def _run_probe_t2i_token_guard(
     return 0
 
 
+def _run_probe_t2i_overfit(
+    *,
+    config_path: str,
+    steps: int,
+    sample_count: int,
+    test_sample_count: int,
+    lr: float | None,
+    eval_every: int,
+    progress_values: list[float] | None,
+    token_probe_steps: int,
+    unconditional_count: int,
+    save_model: bool,
+) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    run_context = RunContext(config, "probe-t2i-overfit")
+    try:
+        run_t2i_overfit_probe(
+            config=config,
+            steps=steps,
+            sample_count=sample_count,
+            test_sample_count=test_sample_count,
+            lr=lr,
+            eval_every=eval_every,
+            progress_values=tuple(progress_values) if progress_values else None,
+            token_probe_steps=token_probe_steps,
+            unconditional_count=unconditional_count,
+            save_model=save_model,
+            run_context=run_context,
+        )
+        run_context.update_status("ok")
+    except Exception:
+        run_context.update_status("error")
+        raise
+    return 0
+
+
 def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -640,6 +690,19 @@ def main(argv: list[str] | None = None) -> int:
             unconditional_count=args.unconditional_count,
             decode_samples=args.decode_samples,
             lr=args.lr,
+        )
+    if args.command == "probe-t2i-overfit":
+        return _run_probe_t2i_overfit(
+            config_path=args.config,
+            steps=args.steps,
+            sample_count=args.sample_count,
+            test_sample_count=args.test_sample_count,
+            lr=args.lr,
+            eval_every=args.eval_every,
+            progress_values=args.progress_values,
+            token_probe_steps=args.token_probe_steps,
+            unconditional_count=args.unconditional_count,
+            save_model=args.save_model,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)

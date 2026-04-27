@@ -317,6 +317,23 @@ case "$MODE" in
     done
     run_cli probe-t2i-token-guard --config "$CONFIG" "${ARGS[@]}"
     ;;
+  probe-t2i-overfit)
+    CONFIG="configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml"
+    ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+    run_cli probe-t2i-overfit --config "$CONFIG" "${ARGS[@]}"
+    ;;
   visualize)
     CONFIG="configs/default.yaml"
     while [[ $# -gt 0 ]]; do
