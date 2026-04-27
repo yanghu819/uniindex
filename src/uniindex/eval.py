@@ -61,6 +61,8 @@ def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDe
         dropout=config.model.dropout,
         image_summary_to_text=config.model.image_summary_to_text,
         image_semantic_tokens=config.model.image_semantic_tokens,
+        image_semantic_source=config.model.image_semantic_source,
+        image_vocab_size=layout.codebook_size,
     ).to(device)
     model.load_state_dict(payload["model"])
     model.eval()

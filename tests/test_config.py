@@ -219,11 +219,29 @@ def test_load_siglipvq_generation_labeltoken_semantic_token_probe_config():
     assert config.dataset.test_limit == 128
     assert config.model.image_summary_to_text is False
     assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "hidden"
     assert config.train.image_to_text_label_weight == 1.0
     assert config.train.image_to_text_semantic_weight == 5.0
     assert config.train.image_to_text_semantic_pool == "semantic"
     assert config.i2t_llm.feature_pool == "semantic"
     assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_token_probe_img512"
+
+
+def test_load_siglipvq_generation_labeltoken_semantic_vqtoken_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.model.image_summary_to_text is False
+    assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "vq_tokens"
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 5.0
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512"
 
 
 def test_load_minflm_config():
@@ -261,6 +279,7 @@ def test_load_projection_progresses_config(tmp_path):
     raw["sampling"]["image_to_text_logit_normal_scale"] = 1.5
     raw["model"]["image_summary_to_text"] = True
     raw["model"]["image_semantic_tokens"] = "1"
+    raw["model"]["image_semantic_source"] = "vq_tokens"
     raw["train"]["image_to_text_mismatch_weight"] = "0.125"
     raw["train"]["image_to_text_mismatch_margin"] = "1.5"
     raw["train"]["stage2_init_checkpoint"] = "models/active/checkpoints/stage2_latest.pt"
@@ -289,6 +308,7 @@ def test_load_projection_progresses_config(tmp_path):
     assert config.sampling.image_to_text_logit_normal_scale == 1.5
     assert config.model.image_summary_to_text is True
     assert config.model.image_semantic_tokens == 1
+    assert config.model.image_semantic_source == "vq_tokens"
     assert config.train.image_to_text_mismatch_weight == 0.125
     assert config.train.image_to_text_mismatch_margin == 1.5
     assert config.train.stage2_init_checkpoint == "models/active/checkpoints/stage2_latest.pt"

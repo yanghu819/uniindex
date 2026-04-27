@@ -103,6 +103,34 @@ def test_unified_denoiser_can_return_image_semantic_tokens():
     assert model(z_t, t, modality_ids).shape == (3, 6, 74)
 
 
+def test_unified_denoiser_can_build_semantic_tokens_from_vq_tokens():
+    model = UnifiedDenoiser(
+        input_dim=32,
+        seq_len=6,
+        vocab_size=74,
+        d_model=32,
+        n_heads=4,
+        n_layers=1,
+        mlp_ratio=2,
+        dropout=0.0,
+        image_semantic_tokens=1,
+        image_semantic_source="vq_tokens",
+        image_vocab_size=10,
+    )
+    z_t = torch.zeros(3, 6, 32)
+    z_t[:, :4, :10] = torch.nn.functional.one_hot(
+        torch.tensor([[0, 1, 2, 3], [3, 2, 1, 0], [4, 5, 6, 7]]),
+        num_classes=10,
+    ).float()
+    z_t[:, 4:, 10:12] = 0.5
+    t = torch.tensor([[1.0, 1.0, 1.0, 1.0, 0.25, 0.25]]).expand(3, -1)
+    modality_ids = torch.tensor([0, 0, 0, 0, 1, 1])
+
+    features = model.forward_features(z_t, t, modality_ids, include_extra_tokens=True)
+
+    assert features.shape == (3, 7, 32)
+
+
 def test_mask_logits_keeps_valid_regions():
     layout = TaskLayout(image_seq_len=4, text_seq_len=1, codebook_size=10, text_vocab_size=2)
     logits = torch.zeros(2, layout.seq_len, layout.vocab_size)
