@@ -751,7 +751,7 @@
 
 Do not continue increasing `text_sequence_weight`, the low-t/noise-only i2t strategy, lower-gamma/logit-normal sampling, plain second projection, pure candidate-score projection, candidate-score blend, joint-task mismatch loss, pairwise mismatch-margin weight, unregularized full-model sampler-state FT, high-anchor final-block sampler-state FT, weak-anchor head-only FT, longer head-only FT, or tiny-LLM text priors without a new reason. Checkpoint interpolation remains a useful low-cost probe, but the `alpha = 0.375` result is not strong enough to replace the active baseline.
 
-The label-feature probe and direct text-decoder probe shift the next priority away from sampler-only work. SigLIP-VQ clears both cheap semantic gates: VQ-label accuracy `0.69921875` on the earlier 256px gate, and direct text-decoder free exact `0.86328125` with shuffled-image candidate accuracy near chance. The current failure is not "VQ has no understanding signal"; it is that the unified FLM hidden path is not preserving that signal for text generation. Keep `probe-label-features`, `probe-vq-text-decoder`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop.
+The label-feature probe, direct text-decoder probe, and semantic-token probe shift the next priority away from sampler-only work. SigLIP-VQ clears the semantic gates: VQ-label accuracy `0.69921875` on the earlier 256px gate, direct text-decoder free exact `0.86328125` with shuffled-image candidate accuracy near chance, and now FLM semantic-token hidden accuracy `0.9609375` when the semantic token is sourced directly from VQ tokens. The current failure is no longer "VQ has no understanding signal"; it is making the unified FLM route that signal into free text sampling and generated-image evaluation without losing the shared generation path. Keep `probe-label-features`, `probe-vq-text-decoder`, `probe-i2t-overfit`, and `diagnose-i2t-understanding` in the acceptance loop.
 
 ## Recent SigLIP-VQ label-token FLM iteration
 
@@ -824,6 +824,37 @@ The label-feature probe and direct text-decoder probe shift the next priority aw
   - These values remain close to random ten-class CE, so the model is not learning image-to-label binding during training.
 - Decision: do not promote `image_summary_to_text`. A single global summary injection is too weak; it neither changes free i2t output nor makes text hidden linearly/MLP-decodable for labels.
 - Lesson: the useful semantic signal is still in the VQ token sequence, but the unified FLM is failing to build a supervised semantic bottleneck from it. The next iteration should stop adding weak residual hints and instead force an explicit bottleneck: a dedicated image semantic token/prefix with direct label supervision that text positions must attend to, or a two-head unified FLM objective where the semantic token is part of the denoising state rather than a train-only auxiliary head.
+
+## Recent FLM semantic-token bottleneck probes
+
+- Run window: `2026-04-27T05:55:57Z` to `2026-04-27T06:18:05Z` (`2026-04-27 13:55:57-14:18:05 CST`).
+- Code states:
+  - GitHub SHA `a1b0b9e1b21bdd9d82034342e787f71424868506`: hidden-source semantic token.
+  - GitHub SHA `b96d5f195340650e0082725b57af1aa9ad85420c`: VQ-token-source semantic token.
+- Hidden-source config: `configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_token_probe.yaml`.
+- Hidden-source summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/semantic_token/20260427T055557Z-semantic-token-quick/summary.json`.
+- Hidden-source result:
+  - `diagnose-i2t` still collapsed to only `one` at progress `0.5`, `0.9`, and `0.95`.
+  - Exact/label stayed `0.1171875`, token stayed `0.55859375`.
+  - Feature probe with `feature_pool=semantic`: direct VQ-token head `0.90625`, FLM semantic hidden `0.1171875`.
+  - Lesson: a semantic token initialized from existing FLM hidden mean does not help, because that hidden path already lost the semantic signal.
+- VQ-token-source config: `configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml`.
+- VQ-token-source summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/semantic_vqtoken/20260427T061021Z-semantic-vqtoken-quick/summary.json`.
+- VQ-token-source code change: keep the semantic token inside the unified denoiser sequence, but initialize it from the clean image VQ distribution through a learned code embedding plus position embedding, then directly supervise that token with label loss.
+- VQ-token-source `diagnose-i2t` result:
+  - Progress `0.5`: exact `0.8828125`, token `0.94140625`, constrained label `0.8828125`.
+  - Progress `0.9`: exact `0.7109375`, token `0.85546875`, constrained label `0.7109375`.
+  - Progress `0.95`: exact `0.6328125`, token `0.81640625`, constrained label `0.6328125`.
+- VQ-token-source label-feature probe:
+  - Direct VQ-token head final `0.9296875`.
+  - FLM semantic hidden final `0.9609375`, best `0.9609375`.
+  - By step `100`, FLM semantic hidden was already `0.953125`.
+- Train-log signal:
+  - In the hidden-source runs, semantic label loss stayed near random ten-class CE.
+  - In the VQ-token-source run, semantic label loss dropped as low as `0.008677628822624683` in the stage2 tail, proving the new bottleneck is trainable.
+- Decision: promote the VQ-token-source semantic bottleneck as the active understanding branch for the next unified SigLIP-VQ FLM iteration. Do not return to gamma, candidate-score, weak residual summary, pooled hidden auxiliary, or tiny-LLM text-prior work unless this bottleneck later fails a stronger generation-side guard.
+- Remaining gap: this run intentionally skipped slow generated-image eval. The next experiment must verify the full unified path: free i2t sampling with the semantic token enabled, plus text-to-SigLIP-VQ generation and unconditional consistency under a practical cached/batched renderer.
+- Next action: make the semantic-token route part of the normal SigLIP-VQ generation config, run a small eval that reports i2t diagnostics and t2i/unconditional metrics, and only then decide whether to lengthen training.
 
 ## Archived local trees
 
