@@ -797,6 +797,34 @@ The label-feature probe and direct text-decoder probe shift the next priority aw
   - Train log: even `semantic_weight=10.0` with i2t-only stage2 left `semantic_label_loss` around `2.13-2.44`.
 - Decision: do not promote label-token, plain label loss, or the pooled semantic auxiliary. They prove the current hidden path is not a good semantic bottleneck. The next algorithmic iteration should change the representation path, not add another sampler fallback: add an explicit global image summary route such as a CLS/summary token or dedicated image-to-text conditioning prefix inside the unified FLM, then require the same VQ-token-vs-FLM-hidden probe to show FLM hidden label accuracy moves well above chance before running longer generation experiments.
 
+## Recent FLM image-summary-to-text route probe
+
+- Run window: `2026-04-27T04:05:43Z` to `2026-04-27T04:28:22Z` (`2026-04-27 12:05:43-12:28:22 CST`).
+- Code state: GitHub SHA `bad8a2ba8a918fd24d96e034150779dfdd579bdb`.
+- Config: `configs/flm_joint_work_siglipvq_generation_labeltoken_summary_probe.yaml`.
+- Code change: add optional `model.image_summary_to_text`, which projects the clean image hidden summary into text positions only when image is clean and text is noisy. Also add text/all pooling controls for the semantic auxiliary and label-feature probe.
+- Local validation:
+  - `.venv/bin/python -m pytest tests/test_config.py tests/test_model.py tests/test_train_schedule.py tests/test_i2t_llm_decoder.py -q` -> `42 passed`.
+  - `.venv/bin/python -m pytest -q` -> `107 passed, 1 warning`.
+  - `ruff` was unavailable in the local shell for this run.
+- Full run control:
+  - Initial path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/summary_route/20260427T040543Z-image-summary-text/`.
+  - `prepare`, `stage1`, and `stage2` completed.
+  - `eval` was stopped after it became dominated by slow image decoding and repeated model reloads (`error:143`); this was intentionally cut because the question for this iteration was text-side semantic binding, not generated image quality.
+- Quick diagnostic path: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/summary_route/20260427T042718Z-image-summary-text-quick/summary.json`.
+- `diagnose-i2t` result:
+  - At progress `0.5`, `0.9`, and `0.95`, all generated labels were `one`.
+  - Exact/label accuracy stayed `0.1171875`.
+  - Token accuracy stayed `0.55859375`.
+- Label-feature probe result:
+  - Direct VQ-token probe reached `0.921875` test accuracy.
+  - FLM text-hidden probe stayed at `0.1171875`; best was also `0.1171875`.
+- Stage2 train log:
+  - At step 500, `semantic_label_loss = 2.1282246112823486`, `label_loss = 2.118138074874878`, and `sequence_loss = 2.117321014404297`.
+  - These values remain close to random ten-class CE, so the model is not learning image-to-label binding during training.
+- Decision: do not promote `image_summary_to_text`. A single global summary injection is too weak; it neither changes free i2t output nor makes text hidden linearly/MLP-decodable for labels.
+- Lesson: the useful semantic signal is still in the VQ token sequence, but the unified FLM is failing to build a supervised semantic bottleneck from it. The next iteration should stop adding weak residual hints and instead force an explicit bottleneck: a dedicated image semantic token/prefix with direct label supervision that text positions must attend to, or a two-head unified FLM objective where the semantic token is part of the denoising state rather than a train-only auxiliary head.
+
 ## Archived local trees
 
 - `visualize-joint-work`
