@@ -297,7 +297,6 @@ def _save_distributional_checkpoint(
     *,
     config: ProjectConfig,
     model: UnifiedDenoiser,
-    optimizer: torch.optim.Optimizer,
     tokenizer_state: dict,
     step: int,
     loss_kind: str,
@@ -308,7 +307,6 @@ def _save_distributional_checkpoint(
         "stage": "stage2",
         "step": int(step),
         "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
         "tokenizer_state": tokenizer_state,
         "config_name": config.name,
         "probe": "probe-t2i-distributional-ft",
@@ -500,7 +498,6 @@ def run_t2i_distributional_ft_probe(
                 checkpoint_path = _save_distributional_checkpoint(
                     config=config,
                     model=model,
-                    optimizer=optimizer,
                     tokenizer_state=tokenizer_state,
                     step=step,
                     loss_kind=loss_kind,
