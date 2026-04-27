@@ -946,6 +946,27 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
 - Decision: pure t2i FT partially fixes token collapse but destroys the understanding path. Do not promote the t2i-only checkpoint.
 - Next action: train a balanced two-phase or interleaved schedule that preserves the semantic i2t bottleneck while giving t2i enough dedicated steps. Minimum next probe should compare `t2i:i2t_semantic` schedules like `1:1`, `2:1`, and `4:1`, with token guard plus `diagnose-i2t` after each; do not return to pixel decode until token guard exceeds `0.6` without collapsing i2t below `0.6`.
 
+## Recent balanced t2i/i2t schedule probe
+
+- Run window: `2026-04-27T09:37:58Z` to `2026-04-27T09:44:42Z` (`2026-04-27 17:37:58-17:44:42 CST`).
+- Code state: GitHub SHA `7053256eaf9bb7bff42bfb5b7e73893afe393ccd`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/balanced_schedule/20260427T094048Z-balanced-t2i-i2t/summary.json`.
+- Method:
+  - start from `models/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/checkpoints/stage2_latest.pt`
+  - run three `300`-step stage2 fine-tunes with `joint=0` and `t2i:i2t` repeats `1:1`, `2:1`, and `4:1`
+  - keep the existing semantic-vqtoken i2t losses active
+  - after each case run `probe-t2i-token-guard` and `diagnose-i2t` at progress `0.5`, `0.9`, and `0.95`
+- Token-generation results:
+  - `1:1`: conditioned token-label `0.10000000149011612`, predicted histogram `{"9": 40}`, unique token count `36`, avg unique/sample `33.150001525878906`, hist L1 `1.0666687488555908`, uncond consistency `0.0`
+  - `2:1`: conditioned token-label `0.10000000149011612`, predicted histogram `{"9": 40}`, unique token count `36`, avg unique/sample `34.25`, hist L1 `0.9859222769737244`, uncond consistency `0.0`
+  - `4:1`: conditioned token-label `0.10000000149011612`, predicted histogram `{"9": 40}`, unique token count `43`, avg unique/sample `36.349998474121094`, hist L1 `0.9636414051055908`, uncond consistency `0.0`
+- i2t preservation:
+  - `1:1`: exact/label/token `0.953125 / 0.953125 / 0.9765625` at all three progress points
+  - `2:1`: progress `0.5` exact/label/token `0.859375 / 0.859375 / 0.9296875`; progress `0.9` and `0.95` exact/label/token `0.8359375 / 0.8359375 / 0.91796875`
+  - `4:1`: progress `0.5` exact/label/token `0.875 / 0.875 / 0.9375`; progress `0.9` exact/label/token `0.78125 / 0.78125 / 0.890625`; progress `0.95` exact/label/token `0.7578125 / 0.7578125 / 0.87890625`
+- Decision: do not promote any balanced `300`-step case. Increasing t2i ratio moves the generated token distribution in the right direction, but it does not create class-conditioned generation: every conditioned sample is still classified as label `9`, and the t2i token-label guard stays at chance.
+- Lesson: the schedule ratio alone is too weak. This does not refute the semantic-vqtoken unified path, because i2t remains strong and t2i collapse is partially softened. The next generation-side experiment should target the image-token endpoint distribution directly: either add image-position dense/simplex or soft distribution supervision for t2i, or run a longer t2i-heavy checkpoint curve while keeping a strict i2t early-stop guard.
+
 ## Archived local trees
 
 - `visualize-joint-work`
