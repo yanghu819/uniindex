@@ -241,6 +241,7 @@ def run_label_feature_probe(
         "vq_only": bool(vq_only),
         "source_checkpoint": str(config.paths.models_dir / "checkpoints" / "stage2_latest.pt"),
         "feature_progress": float(config.i2t_llm.feature_progress),
+        "feature_pool": str(config.i2t_llm.feature_pool),
         "snapshots": snapshots,
     }
 

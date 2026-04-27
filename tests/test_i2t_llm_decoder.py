@@ -31,11 +31,14 @@ class FixedFeatureDenoiser(nn.Module):
         self.layout = layout
         self.hidden_dim = hidden_dim
 
-    def forward_features(self, z_t, t, modality_ids):
+    def forward_features(self, z_t, t, modality_ids, *, include_extra_tokens=False):
         del t, modality_ids
         hidden = torch.zeros(z_t.shape[0], self.layout.seq_len, self.hidden_dim, device=z_t.device)
         hidden[:, self.layout.image_slice] = 1.0
         hidden[:, self.layout.text_slice] = 3.0
+        if include_extra_tokens:
+            semantic = torch.full((z_t.shape[0], 1, self.hidden_dim), 5.0, device=z_t.device)
+            hidden = torch.cat([hidden, semantic], dim=1)
         return hidden
 
 
@@ -143,3 +146,28 @@ def test_extract_i2t_image_features_can_pool_text_hidden():
     )
 
     assert torch.equal(features, torch.full((2, 5), 3.0))
+
+
+def test_extract_i2t_image_features_can_pool_semantic_hidden():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=3, text_vocab_size=4)
+    config = SimpleNamespace(
+        i2t_llm=SimpleNamespace(feature_progress=0.5, feature_pool="semantic"),
+        sampling=SimpleNamespace(
+            image_time_power=1.0,
+            text_time_power=1.0,
+            image_to_text_text_time_power=1.0,
+            image_to_text_text_time_schedule="power",
+            image_to_text_logit_normal_loc=0.0,
+            image_to_text_logit_normal_scale=1.0,
+        ),
+    )
+
+    features = extract_i2t_image_features(
+        denoiser=FixedFeatureDenoiser(layout, hidden_dim=5),
+        config=config,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        image_tokens=torch.tensor([[0, 1], [2, 0]]),
+    )
+
+    assert torch.equal(features, torch.full((2, 5), 5.0))

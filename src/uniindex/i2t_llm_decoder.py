@@ -90,6 +90,7 @@ def _build_denoiser(config: ProjectConfig, layout: TaskLayout, device: torch.dev
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
         image_summary_to_text=config.model.image_summary_to_text,
+        image_semantic_tokens=config.model.image_semantic_tokens,
     ).to(device)
 
 
@@ -223,14 +224,23 @@ def extract_i2t_image_features(
         condition_image=True,
         condition_text=False,
     )
-    features = denoiser.forward_features(z_t, t_pos, modality_ids)
     feature_pool = getattr(config.i2t_llm, "feature_pool", "image")
+    features = denoiser.forward_features(
+        z_t,
+        t_pos,
+        modality_ids,
+        include_extra_tokens=feature_pool == "semantic",
+    )
     if feature_pool == "image":
         return features[:, layout.image_slice].mean(dim=1)
     if feature_pool == "text":
         return features[:, layout.text_slice].mean(dim=1)
     if feature_pool == "all":
         return features.mean(dim=1)
+    if feature_pool == "semantic":
+        if features.shape[1] <= layout.seq_len:
+            raise ValueError("i2t_llm.feature_pool=semantic requires model.image_semantic_tokens > 0")
+        return features[:, layout.seq_len :].mean(dim=1)
     raise ValueError(f"unsupported i2t_llm.feature_pool: {feature_pool}")
 
 

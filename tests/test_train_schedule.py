@@ -78,13 +78,28 @@ class FixedLabelTextModel(torch.nn.Module):
 
 
 class ImageFeatureModel(torch.nn.Module):
-    def __init__(self, layout: TaskLayout, feature_dim: int, *, fill_text: bool = False) -> None:
+    def __init__(
+        self,
+        layout: TaskLayout,
+        feature_dim: int,
+        *,
+        fill_text: bool = False,
+        fill_semantic: bool = False,
+    ) -> None:
         super().__init__()
         self.layout = layout
         self.feature_dim = feature_dim
         self.fill_text = fill_text
+        self.fill_semantic = fill_semantic
 
-    def forward_features(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+    def forward_features(
+        self,
+        z_t: torch.Tensor,
+        t: torch.Tensor,
+        modality_ids: torch.Tensor,
+        *,
+        include_extra_tokens: bool = False,
+    ) -> torch.Tensor:
         del t, modality_ids
         image_indices = z_t[:, self.layout.image_slice].argmax(dim=-1).squeeze(1)
         hidden = torch.zeros(
@@ -98,6 +113,9 @@ class ImageFeatureModel(torch.nn.Module):
         ).to(dtype=z_t.dtype).unsqueeze(1) * 10.0
         if self.fill_text:
             hidden[:, self.layout.text_slice] = hidden[:, self.layout.image_slice].mean(dim=1, keepdim=True)
+        if include_extra_tokens and self.fill_semantic:
+            semantic = hidden[:, self.layout.image_slice].mean(dim=1, keepdim=True)
+            hidden = torch.cat([hidden, semantic], dim=1)
         return hidden
 
 
@@ -388,6 +406,45 @@ def test_image_to_text_semantic_label_loss_can_pool_text_features():
         valid_token_mask=layout.position_valid_token_mask(),
         text_time=0.0,
         pool="text",
+    )
+
+    assert correct_loss.item() < 1e-4
+
+
+def test_image_to_text_semantic_label_loss_can_pool_semantic_token_features():
+    metadata = build_text_metadata(
+        kind="label",
+        label_values=[0, 1],
+        strings=["a", "b"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    image_tokens = torch.tensor([[0], [1]])
+    text_targets = metadata.label_text_tokens.clone()
+    targets = unified_targets(image_tokens, text_targets, layout.codebook_size)
+    x1 = build_flm_clean_state(targets, layout.vocab_size)
+    label_head = torch.nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        label_head.weight.copy_(torch.eye(2))
+
+    correct_loss = _image_to_text_semantic_label_loss(
+        model=ImageFeatureModel(layout, feature_dim=2, fill_semantic=True),
+        label_head=label_head,
+        x1=x1,
+        labels=torch.tensor([0, 1]),
+        label_values=torch.tensor([0, 1]),
+        modality_ids=layout.position_modalities(),
+        layout=layout,
+        valid_token_mask=layout.position_valid_token_mask(),
+        text_time=0.0,
+        pool="semantic",
     )
 
     assert correct_loss.item() < 1e-4

@@ -210,6 +210,22 @@ def test_load_siglipvq_generation_labeltoken_summary_probe_config():
     assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_summary_probe_img512"
 
 
+def test_load_siglipvq_generation_labeltoken_semantic_token_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_token_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 512
+    assert config.dataset.test_limit == 128
+    assert config.model.image_summary_to_text is False
+    assert config.model.image_semantic_tokens == 1
+    assert config.train.image_to_text_label_weight == 1.0
+    assert config.train.image_to_text_semantic_weight == 5.0
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_token_probe_img512"
+
+
 def test_load_minflm_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
     assert config.sampling.image_to_text_projection == "none"
@@ -244,6 +260,7 @@ def test_load_projection_progresses_config(tmp_path):
     raw["sampling"]["image_to_text_logit_normal_loc"] = "-2.5"
     raw["sampling"]["image_to_text_logit_normal_scale"] = 1.5
     raw["model"]["image_summary_to_text"] = True
+    raw["model"]["image_semantic_tokens"] = "1"
     raw["train"]["image_to_text_mismatch_weight"] = "0.125"
     raw["train"]["image_to_text_mismatch_margin"] = "1.5"
     raw["train"]["stage2_init_checkpoint"] = "models/active/checkpoints/stage2_latest.pt"
@@ -251,8 +268,8 @@ def test_load_projection_progresses_config(tmp_path):
     raw["train"]["image_to_text_label_text_time"] = "0.25"
     raw["train"]["image_to_text_semantic_weight"] = "0.5"
     raw["train"]["image_to_text_semantic_text_time"] = "0.125"
-    raw["train"]["image_to_text_semantic_pool"] = "text"
-    raw.setdefault("i2t_llm", {})["feature_pool"] = "text"
+    raw["train"]["image_to_text_semantic_pool"] = "semantic"
+    raw.setdefault("i2t_llm", {})["feature_pool"] = "semantic"
     raw["eval"]["isolate_sampling_rng"] = True
     raw["eval"]["sampling_seed"] = 12345
     config_dir = tmp_path / "configs"
@@ -271,6 +288,7 @@ def test_load_projection_progresses_config(tmp_path):
     assert config.sampling.image_to_text_logit_normal_loc == -2.5
     assert config.sampling.image_to_text_logit_normal_scale == 1.5
     assert config.model.image_summary_to_text is True
+    assert config.model.image_semantic_tokens == 1
     assert config.train.image_to_text_mismatch_weight == 0.125
     assert config.train.image_to_text_mismatch_margin == 1.5
     assert config.train.stage2_init_checkpoint == "models/active/checkpoints/stage2_latest.pt"
@@ -278,8 +296,8 @@ def test_load_projection_progresses_config(tmp_path):
     assert config.train.image_to_text_label_text_time == 0.25
     assert config.train.image_to_text_semantic_weight == 0.5
     assert config.train.image_to_text_semantic_text_time == 0.125
-    assert config.train.image_to_text_semantic_pool == "text"
-    assert config.i2t_llm.feature_pool == "text"
+    assert config.train.image_to_text_semantic_pool == "semantic"
+    assert config.i2t_llm.feature_pool == "semantic"
     assert config.eval.isolate_sampling_rng is True
     assert config.eval.sampling_seed == 12345
 
