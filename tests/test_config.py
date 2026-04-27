@@ -171,6 +171,17 @@ def test_load_siglipvq_generation_probe_config():
     assert config.sampling.image_to_text_projection == "none"
 
 
+def test_load_siglipvq_generation_labeltoken_probe_config():
+    config = load_config("configs/flm_joint_work_siglipvq_generation_labeltoken_probe.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.image_size == 512
+    assert config.text.kind == "label"
+    assert config.dataset.train_limit == 64
+    assert config.dataset.test_limit == 64
+    assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_probe_img512"
+    assert config.sampling.image_to_text_projection == "none"
+
+
 def test_load_minflm_config():
     config = load_config("configs/flm_joint_work_fullvocab_tsw075_minflm.yaml")
     assert config.sampling.image_to_text_projection == "none"

@@ -34,7 +34,7 @@ def build_text_metadata(
     bos_token: str,
     eos_token: str,
 ) -> TextMetadata:
-    if kind != "char":
+    if kind not in {"char", "label"}:
         raise ValueError(f"unsupported text kind: {kind}")
     if len(label_values) != len(strings):
         raise ValueError("labels.values and text.strings must have the same length")
@@ -46,14 +46,24 @@ def build_text_metadata(
     if len(set(special_tokens)) != len(special_tokens):
         raise ValueError("pad_token, bos_token, and eos_token must be unique")
 
-    charset = sorted({char for text in strings for char in text})
-    vocab_tokens = (pad_token, bos_token, eos_token, *charset)
+    if kind == "char":
+        text_tokens = sorted({char for text in strings for char in text})
+        seq_len = max(len(text) + 2 for text in strings)
+    else:
+        if any(text in special_tokens for text in strings):
+            raise ValueError("label text strings must not reuse special tokens")
+        text_tokens = list(strings)
+        seq_len = 3
+    vocab_tokens = (pad_token, bos_token, eos_token, *text_tokens)
     token_to_id = {token: index for index, token in enumerate(vocab_tokens)}
-    seq_len = max(len(text) + 2 for text in strings)
 
     rows = []
     for text in strings:
-        token_ids = [token_to_id[bos_token], *[token_to_id[char] for char in text], token_to_id[eos_token]]
+        if kind == "char":
+            content_ids = [token_to_id[char] for char in text]
+        else:
+            content_ids = [token_to_id[text]]
+        token_ids = [token_to_id[bos_token], *content_ids, token_to_id[eos_token]]
         token_ids += [token_to_id[pad_token]] * (seq_len - len(token_ids))
         rows.append(token_ids)
 
