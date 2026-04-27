@@ -882,6 +882,38 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
 - Decision: understanding is now real, but unified generation is not. The semantic token solves `image -> text` on SigLIP-VQ, but it does not make `text -> SigLIP-VQ tokens -> image` work; t2i and unconditional consistency are both zero on the pixel guard.
 - Next action: stop evaluating generation primarily through slow pixel decode. Add a fast token-level generation guard: train or reuse a frozen VQ-token label classifier, score generated image tokens before pixel decoding, and decode only a tiny visual grid for inspection. In parallel, cache or batch the SigLIP-VQ decoder so pixel eval is a final confirmation step, not the optimization loop.
 
+## Recent text-to-SigLIP-VQ token guard
+
+- Run window: `2026-04-27T08:53:47Z` to `2026-04-27T08:57:40Z` (`2026-04-27 16:53:47-16:57:40 CST`).
+- Code states:
+  - GitHub SHA `ca20e48a8839238894d4c34a4a906b5dbcbfa0f2`: added `probe-t2i-token-guard`.
+  - GitHub SHA `e3326b2a930bb13b3fbc790b3910f607a45c5c7c`: wired the probe through `run.sh`.
+- Main config: `configs/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_probe.yaml`.
+- Main summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/20260427T085347Z-probe-t2i-token-guard/summary.json`.
+- Last-endpoint control config: `configs_generated/flm_joint_work_siglipvq_generation_labeltoken_semantic_vqtoken_last_endpoint_guard.yaml`.
+- Last-endpoint summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_last_endpoint_guard_img512/20260427T085704Z-probe-t2i-token-guard/summary.json`.
+- Real-token probe sanity:
+  - The fast VQ-token label classifier reached `test_real_token_label_accuracy = 0.859375` after only `100` steps on real SigLIP-VQ test tokens.
+  - This confirms the generated-token guard is meaningful: real SigLIP-VQ token sequences still carry enough digit semantics for a small classifier.
+- Generated-token result:
+  - `conditioned_token_label_accuracy = 0.10000000149011612`.
+  - `conditioned_token_pred_histogram = {"0": 40}` for 40 text-conditioned samples.
+  - `generated_unique_token_count = 1`.
+  - `generated_avg_unique_tokens_per_sample = 1.0`.
+  - `generated_vs_real_test_token_histogram_l1 = 1.7437744140625`.
+  - A direct one-sample inspection showed every image position equals token id `7240` across all `1024` image positions.
+- Unconditional result:
+  - `unconditional_token_text_consistency = 0.0`.
+  - Token classifier predicts image label `0` for all unconditional samples.
+  - Generated text resolves to label `3` for all unconditional samples.
+- Final-decode control:
+  - Switching `sampling.final_decode` from `final_model_call` to `last_endpoint` gave the same collapse: all conditioned generated tokens are still classified as `0`, and `generated_unique_token_count` remains `1`.
+  - This rules out the final model call as the cause. The `text -> image VQ token` sampling trajectory is already collapsed.
+- Visualization:
+  - Conditioned-token confusion matrix: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/20260427T085347Z-probe-t2i-token-guard/visuals/conditioned_token_confusion.png`.
+- Decision: generation is broken before pixel decoding. Do not spend the next loop on the SigLIP-VQ pixel decoder; it is slow but not the primary failure. The immediate bottleneck is that FLM does not learn a non-degenerate `text -> SigLIP-VQ token distribution` under the short semantic-token training recipe.
+- Next action: run a generation-specific FLM probe that removes the i2t-heavy auxiliary pressure and directly overfits `text -> SigLIP-VQ tokens` on a tiny fixed set. If it cannot overfit, the target/schedule/state parameterization is wrong; if it overfits but fails held-out, add data/regularization. Pixel decode should only be used after token-level generation is non-degenerate.
+
 ## Archived local trees
 
 - `visualize-joint-work`
