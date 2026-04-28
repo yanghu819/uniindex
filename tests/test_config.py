@@ -39,6 +39,9 @@ def test_load_smoke_config():
     assert config.sampling.image_to_text_text_time_schedule == "power"
     assert config.sampling.image_to_text_logit_normal_loc == 0.0
     assert config.sampling.image_to_text_logit_normal_scale == 1.0
+    assert config.state.noise_support == "modality_vocab"
+    assert config.train.logit_mask == "modality"
+    assert config.sampling.logit_mask == "modality"
     assert config.eval.isolate_sampling_rng is False
     assert config.eval.sampling_seed is None
     assert config.i2t_llm.enabled is False
@@ -242,6 +245,22 @@ def test_load_siglipvq_generation_labeltoken_semantic_vqtoken_probe_config():
     assert config.train.image_to_text_semantic_pool == "semantic"
     assert config.i2t_llm.feature_pool == "semantic"
     assert config.paths.runs_dir.name == "siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512"
+
+
+def test_load_siglipvq_minimal_unified_config():
+    config = load_config("configs/flm_joint_work_siglipvq_minimal_unified.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.text.kind == "label"
+    assert config.model.image_semantic_tokens == 0
+    assert config.state.noise_support == "full_vocab"
+    assert config.train.logit_mask == "none"
+    assert config.sampling.logit_mask == "none"
+    assert config.train.text_sequence_weight == 0.0
+    assert config.train.image_to_text_label_weight == 0.0
+    assert config.train.image_to_text_semantic_weight == 0.0
+    assert config.sampling.image_to_text_projection == "none"
+    assert config.sampling.final_decode == "last_endpoint"
+    assert config.paths.models_dir.name == "siglipvq_minimal_unified_img512"
 
 
 def test_load_minflm_config():

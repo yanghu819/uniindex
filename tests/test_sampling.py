@@ -36,6 +36,26 @@ class StaticEndpointModel(torch.nn.Module):
         return self.logits_template.to(z_t.device).unsqueeze(0).expand(z_t.shape[0], -1, -1)
 
 
+class CrossModalPreferenceModel(torch.nn.Module):
+    def __init__(self, layout: TaskLayout) -> None:
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+        self.layout = layout
+
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
+        del t, modality_ids
+        logits = torch.full(
+            (z_t.shape[0], self.layout.seq_len, self.layout.vocab_size),
+            -10.0,
+            device=z_t.device,
+        )
+        logits[:, self.layout.image_slice, 1] = 5.0
+        logits[:, self.layout.image_slice, self.layout.text_offset] = 10.0
+        logits[:, self.layout.text_slice, self.layout.text_offset + 1] = 5.0
+        logits[:, self.layout.text_slice, 0] = 10.0
+        return logits
+
+
 class CandidatePreferenceModel(torch.nn.Module):
     def __init__(self, layout: TaskLayout, preferred_text_targets: torch.Tensor) -> None:
         super().__init__()
@@ -191,6 +211,45 @@ def test_conditioned_image_slice_stays_clean_between_steps():
     clean_image = build_flm_clean_state(image_tokens, layout.vocab_size)
     assert torch.equal(model.inputs[0][:, layout.image_slice], clean_image)
     assert torch.equal(model.inputs[1][:, layout.image_slice], clean_image)
+
+
+def test_sampling_logit_mask_none_allows_full_vocab_argmax():
+    layout = TaskLayout(image_seq_len=1, text_seq_len=1, codebook_size=2, text_vocab_size=2)
+    model = CrossModalPreferenceModel(layout)
+
+    unmasked, _ = _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="last_endpoint",
+        batch_size=1,
+        noise_support="full_vocab",
+        logit_mask="none",
+    )
+    masked, _ = _sample_unified_with_logits(
+        model=model,
+        layout=layout,
+        schedule_tables={"kind": "power"},
+        temperature=1.0,
+        steps=1,
+        image_time_power=1.0,
+        text_time_power=1.0,
+        image_to_text_text_time_power=None,
+        integrator="legacy_progress_euler",
+        final_decode="last_endpoint",
+        batch_size=1,
+        noise_support="full_vocab",
+        logit_mask="modality",
+    )
+
+    assert unmasked.tolist() == [[layout.text_offset, 0]]
+    assert masked.tolist() == [[1, layout.text_offset + 1]]
 
 
 def test_candidate_denoiser_score_selects_best_candidate_without_labels():

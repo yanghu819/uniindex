@@ -13,6 +13,8 @@ from .eval import (
     _load_stage2,
     _sample_unified_with_logits,
     constrained_text_label_values,
+    safe_image_tokens,
+    safe_text_tokens,
     sample_unified,
 )
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
@@ -103,11 +105,13 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
         image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
         image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+        noise_support=config.state.noise_support,
+        logit_mask=config.sampling.logit_mask,
         text_metadata=text_metadata,
         condition_image_tokens=image_tokens,
         condition_text_tokens=None,
     )
-    sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
+    sampled_text = safe_text_tokens(sampled_tokens[:, layout.text_slice], layout, text_metadata)
     sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
     gt_text_strings = decode_text_tokens(text_tokens, text_metadata)
     constrained_labels = constrained_text_label_values(
@@ -138,11 +142,13 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
         image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
         image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+        noise_support=config.state.noise_support,
+        logit_mask=config.sampling.logit_mask,
         text_metadata=text_metadata,
         condition_image_tokens=None,
         condition_text_tokens=class_text_tokens,
     )[:, layout.image_slice]
-    decoded_generated = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
+    decoded_generated = _decode_image_tokens(tokenizer, safe_image_tokens(sampled_images, layout), tokenizer_state, grid_shape, device)
     generated_preds = classify_images(classifier, decoded_generated, config.dataset.name)
 
     unconditional = sample_unified(
@@ -166,14 +172,22 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
         image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
         image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+        noise_support=config.state.noise_support,
+        logit_mask=config.sampling.logit_mask,
         text_metadata=text_metadata,
         batch_size=16,
         condition_image_tokens=None,
         condition_text_tokens=None,
     )
-    unconditional_images = _decode_image_tokens(tokenizer, unconditional[:, layout.image_slice], tokenizer_state, grid_shape, device)
+    unconditional_images = _decode_image_tokens(
+        tokenizer,
+        safe_image_tokens(unconditional[:, layout.image_slice], layout),
+        tokenizer_state,
+        grid_shape,
+        device,
+    )
     unconditional_clf = classify_images(classifier, unconditional_images, config.dataset.name)
-    unconditional_text = unconditional[:, layout.text_slice] - layout.text_offset
+    unconditional_text = safe_text_tokens(unconditional[:, layout.text_slice], layout, text_metadata)
     unconditional_text_strings = decode_text_tokens(unconditional_text, text_metadata)
     unconditional_text_values = label_values_from_text_tokens(unconditional_text, text_metadata)
 

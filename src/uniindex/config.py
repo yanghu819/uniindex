@@ -99,6 +99,7 @@ class TrainConfig:
     image_to_text_semantic_weight: float = 0.0
     image_to_text_semantic_text_time: float = 0.0
     image_to_text_semantic_pool: str = "image"
+    logit_mask: str = "modality"
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,12 @@ class SamplingConfig:
     image_to_text_candidate_score_progress: list[float] | None = None
     image_to_text_candidate_score_num_noise: int = 1
     image_to_text_candidate_score_blend_weight: float = 0.0
+    logit_mask: str = "modality"
+
+
+@dataclass(frozen=True)
+class StateConfig:
+    noise_support: str = "modality_vocab"
 
 
 @dataclass(frozen=True)
@@ -171,6 +178,7 @@ class ProjectConfig:
     model: ModelConfig
     train: TrainConfig
     sampling: SamplingConfig
+    state: StateConfig
     schedule: ScheduleConfig
     eval: EvalConfig
     i2t_llm: I2TLLMConfig
@@ -227,6 +235,7 @@ def _normalize_text_config(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_train)
+    normalized.setdefault("logit_mask", "modality")
     normalized.setdefault("image_to_text_text_time_cap", None)
     normalized.setdefault("image_to_text_noise_only_prob", 0.0)
     normalized.setdefault("stage2_init_checkpoint", None)
@@ -272,6 +281,10 @@ def _normalize_train_config(raw_train: dict[str, Any]) -> dict[str, Any]:
     if semantic_pool not in {"image", "text", "all", "semantic"}:
         raise ValueError(f"unsupported image_to_text_semantic_pool: {semantic_pool}")
     normalized["image_to_text_semantic_pool"] = semantic_pool
+    logit_mask = str(normalized["logit_mask"])
+    if logit_mask not in {"modality", "none"}:
+        raise ValueError(f"unsupported train.logit_mask: {logit_mask}")
+    normalized["logit_mask"] = logit_mask
     return normalized
 
 
@@ -297,6 +310,7 @@ def _normalize_model_config(raw_model: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw_sampling)
+    normalized.setdefault("logit_mask", "modality")
     normalized.setdefault("integrator", "legacy_progress_euler")
     normalized.setdefault("final_decode", "final_model_call")
     normalized.setdefault("image_to_text_text_time_schedule", "power")
@@ -382,6 +396,20 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
             f"got {image_to_text_candidate_score_blend_weight}"
         )
     normalized["image_to_text_candidate_score_blend_weight"] = image_to_text_candidate_score_blend_weight
+    logit_mask = str(normalized["logit_mask"])
+    if logit_mask not in {"modality", "none"}:
+        raise ValueError(f"unsupported sampling.logit_mask: {logit_mask}")
+    normalized["logit_mask"] = logit_mask
+    return normalized
+
+
+def _normalize_state_config(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(raw.get("state", {}))
+    normalized.setdefault("noise_support", "modality_vocab")
+    noise_support = str(normalized["noise_support"])
+    if noise_support not in {"modality_vocab", "full_vocab"}:
+        raise ValueError(f"unsupported state.noise_support: {noise_support}")
+    normalized["noise_support"] = noise_support
     return normalized
 
 
@@ -466,6 +494,7 @@ def load_config(path: str | Path) -> ProjectConfig:
         model=ModelConfig(**_normalize_model_config(raw["model"])),
         train=TrainConfig(**_normalize_train_config(raw["train"])),
         sampling=SamplingConfig(**_normalize_sampling_config(raw["sampling"])),
+        state=StateConfig(**_normalize_state_config(raw)),
         schedule=ScheduleConfig(**_normalize_schedule_config(raw)),
         eval=EvalConfig(**raw["eval"]),
         i2t_llm=I2TLLMConfig(**_normalize_i2t_llm_config(raw)),
@@ -484,6 +513,7 @@ def as_dict(config: ProjectConfig) -> dict[str, Any]:
         "model": dict(config.model.__dict__),
         "train": dict(config.train.__dict__),
         "sampling": dict(config.sampling.__dict__),
+        "state": dict(config.state.__dict__),
         "schedule": dict(config.schedule.__dict__),
         "eval": dict(config.eval.__dict__),
         "i2t_llm": dict(config.i2t_llm.__dict__),

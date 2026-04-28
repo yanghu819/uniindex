@@ -76,3 +76,11 @@ def mask_logits(logits: torch.Tensor, *, layout: TaskLayout) -> torch.Tensor:
     position_types = layout.position_modalities().to(logits.device)
     valid = layout.modality_vocab_mask().to(logits.device)[position_types]
     return logits.masked_fill(~valid.unsqueeze(0), float("-inf"))
+
+
+def maybe_mask_logits(logits: torch.Tensor, *, layout: TaskLayout, mode: str = "modality") -> torch.Tensor:
+    if mode == "modality":
+        return mask_logits(logits, layout=layout)
+    if mode == "none":
+        return logits
+    raise ValueError(f"unsupported logit mask mode: {mode}")

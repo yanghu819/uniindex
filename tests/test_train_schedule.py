@@ -483,3 +483,55 @@ def test_loss_for_task_does_not_apply_mismatch_loss_to_joint_task():
 
     assert parts["mismatch_loss"] == 0.0
     assert parts["label_loss"] == 0.0
+
+
+def test_loss_for_task_can_use_full_vocab_logits_without_modality_mask():
+    metadata = build_text_metadata(
+        kind="label",
+        label_values=[0],
+        strings=["zero"],
+        pad_token="<pad>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+    )
+    layout = TaskLayout(
+        image_seq_len=1,
+        text_seq_len=metadata.seq_len,
+        codebook_size=2,
+        text_vocab_size=metadata.vocab_size,
+    )
+    targets = unified_targets(torch.tensor([[0]]), metadata.label_text_tokens[[0]], layout.codebook_size)
+    logits = torch.full((1, layout.seq_len, layout.vocab_size), -10.0)
+    logits[0, 0, 0] = 10.0
+    logits[0, 0, layout.text_offset] = 20.0
+    for offset, token_id in enumerate(targets[0, layout.text_slice].tolist(), start=layout.image_seq_len):
+        logits[0, offset, token_id] = 10.0
+        logits[0, offset, 0] = 20.0
+
+    masked_loss, _ = _loss_for_task(
+        logits=logits,
+        targets=targets,
+        layout=layout,
+        joint_weight=0.5,
+        text_weight=1.0,
+        text_pad_id=metadata.pad_id,
+        label_text_tokens=shifted_label_text_tokens(metadata, token_offset=layout.codebook_size),
+        text_sequence_weight=0.0,
+        task="joint",
+        logit_mask="modality",
+    )
+    full_loss, _ = _loss_for_task(
+        logits=logits,
+        targets=targets,
+        layout=layout,
+        joint_weight=0.5,
+        text_weight=1.0,
+        text_pad_id=metadata.pad_id,
+        label_text_tokens=shifted_label_text_tokens(metadata, token_offset=layout.codebook_size),
+        text_sequence_weight=0.0,
+        task="joint",
+        logit_mask="none",
+    )
+
+    assert masked_loss.item() < 1e-3
+    assert full_loss.item() > 5.0

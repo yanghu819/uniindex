@@ -16,8 +16,10 @@ from .eval import (
     _project_text_state,
     _projection_step_indices,
     constrained_text_label_values,
+    safe_text_tokens,
+    text_token_invalid_mask,
 )
-from .layout import mask_logits, unified_targets
+from .layout import mask_logits, maybe_mask_logits, unified_targets
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise, sample_masked_noise
@@ -111,6 +113,8 @@ def _new_text_metric_accumulator() -> dict:
         "token_correct": 0,
         "token_total": 0,
         "constrained_correct": 0,
+        "invalid_text_count": 0,
+        "invalid_text_total": 0,
         "total": 0,
     }
 
@@ -124,7 +128,9 @@ def _update_text_metric_accumulator(
     text_metadata,
     layout,
 ) -> None:
-    sampled_text = text_logits.argmax(dim=-1) - layout.text_offset
+    shifted_text = text_logits.argmax(dim=-1)
+    invalid_text = text_token_invalid_mask(shifted_text, layout)
+    sampled_text = safe_text_tokens(shifted_text, layout, text_metadata)
     sampled_strings = decode_text_tokens(sampled_text, text_metadata)
     target_strings = decode_text_tokens(text_tokens, text_metadata)
     valid_text = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True)
@@ -137,6 +143,8 @@ def _update_text_metric_accumulator(
     accumulator["token_correct"] += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
     accumulator["token_total"] += valid_text.sum().item()
     accumulator["constrained_correct"] += (constrained_values == labels).sum().item()
+    accumulator["invalid_text_count"] += invalid_text.sum().item()
+    accumulator["invalid_text_total"] += invalid_text.numel()
     accumulator["total"] += labels.shape[0]
 
 
@@ -147,6 +155,7 @@ def _finalize_text_metric_accumulator(accumulator: dict) -> dict:
         "image_to_text_exact_match": accumulator["exact"] / total,
         "image_to_text_token_accuracy": accumulator["token_correct"] / token_total,
         "image_to_text_label_accuracy_constrained": accumulator["constrained_correct"] / total,
+        "invalid_text_token_rate": accumulator["invalid_text_count"] / max(accumulator["invalid_text_total"], 1),
     }
 
 
@@ -456,10 +465,11 @@ def _sample_i2t_trace_logits(
     batch_size = image_tokens.shape[0]
     steps = int(config.sampling.steps)
     modality_ids = layout.position_modalities().to(device)
-    valid_token_mask = layout.position_valid_token_mask().to(device)
+    modality_valid_token_mask = layout.position_valid_token_mask().to(device)
+    noise_valid_token_mask = None if config.state.noise_support == "full_vocab" else modality_valid_token_mask
     z_t = sample_masked_noise(
         torch.zeros(batch_size, layout.seq_len, layout.vocab_size, device=device),
-        valid_token_mask,
+        noise_valid_token_mask,
     )
     clean_image_state = build_flm_clean_state(image_tokens, layout.vocab_size)
     z_t[:, layout.image_slice] = clean_image_state
@@ -553,7 +563,7 @@ def _sample_i2t_trace_logits(
                 condition_text=False,
             )
 
-        logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
+        logits = maybe_mask_logits(model(z_t, t_pos, modality_ids), layout=layout, mode=config.sampling.logit_mask)
         last_logits = logits
         if step in trace_requests:
             for requested_progress in trace_requests[step]:
@@ -585,7 +595,7 @@ def _sample_i2t_trace_logits(
             z_t[:, layout.text_slice] = mix_flm_noise(
                 projected_clean,
                 next_t_pos[:, layout.text_slice],
-                valid_token_mask[layout.text_slice],
+                None if noise_valid_token_mask is None else noise_valid_token_mask[layout.text_slice],
             )
 
     if config.sampling.final_decode == "final_model_call":
@@ -611,7 +621,11 @@ def _sample_i2t_trace_logits(
             condition_image=True,
             condition_text=False,
         )
-        final_logits = mask_logits(model(z_t, final_t_pos, modality_ids), layout=layout)
+        final_logits = maybe_mask_logits(
+            model(z_t, final_t_pos, modality_ids),
+            layout=layout,
+            mode=config.sampling.logit_mask,
+        )
     elif last_logits is not None:
         final_logits = last_logits
     else:
@@ -655,7 +669,8 @@ def diagnose_i2t_understanding(
     labels = batch["label"].to(device)
     sample_count = int(labels.shape[0])
     modality_ids = layout.position_modalities().to(device)
-    valid_token_mask = layout.position_valid_token_mask().to(device)
+    modality_valid_token_mask = layout.position_valid_token_mask().to(device)
+    noise_valid_token_mask = None if config.state.noise_support == "full_vocab" else modality_valid_token_mask
 
     direct_records = []
     direct_by_key: dict[tuple[float, str], list[dict]] = {}
@@ -680,9 +695,9 @@ def diagnose_i2t_understanding(
             z_t[:, layout.text_slice] = mix_flm_noise(
                 x1[:, layout.text_slice],
                 t_pos[:, layout.text_slice],
-                valid_token_mask[layout.text_slice],
+                None if noise_valid_token_mask is None else noise_valid_token_mask[layout.text_slice],
             )
-            logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
+            logits = maybe_mask_logits(model(z_t, t_pos, modality_ids), layout=layout, mode=config.train.logit_mask)
             samples, summary = _prediction_records(
                 text_logits=logits[:, layout.text_slice],
                 text_tokens=text_tokens,
@@ -908,7 +923,8 @@ def diagnose_i2t_denoiser(
         num_workers=config.train.num_workers,
     )
     modality_ids = layout.position_modalities().to(device)
-    valid_token_mask = layout.position_valid_token_mask().to(device)
+    modality_valid_token_mask = layout.position_valid_token_mask().to(device)
+    noise_valid_token_mask = None if config.state.noise_support == "full_vocab" else modality_valid_token_mask
 
     results = []
     for progress_value in progress_values:
@@ -920,6 +936,8 @@ def diagnose_i2t_denoiser(
         position_total = torch.zeros(layout.text_seq_len, dtype=torch.long)
         generated_counter: Counter[str] = Counter()
         total = 0
+        invalid_text_count = 0
+        invalid_text_total = 0
         image_t_sum = 0.0
         text_t_sum = 0.0
 
@@ -944,12 +962,16 @@ def diagnose_i2t_denoiser(
             z_t[:, layout.text_slice] = mix_flm_noise(
                 x1[:, layout.text_slice],
                 t_pos[:, layout.text_slice],
-                valid_token_mask[layout.text_slice],
+                None if noise_valid_token_mask is None else noise_valid_token_mask[layout.text_slice],
             )
             logits = model(z_t, t_pos, modality_ids)
-            logits = mask_logits(logits, layout=layout)
+            logits = maybe_mask_logits(logits, layout=layout, mode=config.train.logit_mask)
             text_logits = logits[:, layout.text_slice]
-            sampled_text = text_logits.argmax(dim=-1) - layout.text_offset
+            shifted_text = text_logits.argmax(dim=-1)
+            invalid_text = text_token_invalid_mask(shifted_text, layout)
+            sampled_text = safe_text_tokens(shifted_text, layout, text_metadata)
+            invalid_text_count += int(invalid_text.sum().item())
+            invalid_text_total += int(invalid_text.numel())
 
             sampled_strings = decode_text_tokens(sampled_text, text_metadata)
             target_strings = decode_text_tokens(text_tokens, text_metadata)
@@ -978,6 +1000,7 @@ def diagnose_i2t_denoiser(
                 "image_to_text_exact_match": exact / max(total, 1),
                 "image_to_text_token_accuracy": token_correct / max(token_total, 1),
                 "image_to_text_label_accuracy_constrained": constrained_correct / max(total, 1),
+                "invalid_text_token_rate": invalid_text_count / max(invalid_text_total, 1),
                 "image_to_text_position_accuracy": [
                     correct / max(total_count, 1)
                     for correct, total_count in zip(position_correct.tolist(), position_total.tolist())

@@ -12,7 +12,16 @@ from tqdm import tqdm
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
 from .data import build_loader, split_path
-from .eval import _decode_image_tokens, _load_stage2, sample_unified
+from .eval import (
+    _decode_image_tokens,
+    _load_stage2,
+    image_token_invalid_mask,
+    invalid_rate,
+    safe_image_tokens,
+    safe_text_tokens,
+    sample_unified,
+    text_token_invalid_mask,
+)
 from .label_feature_probe import VQTokenLabelProbe, labels_to_class_indices
 from .layout import TaskLayout
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
@@ -190,6 +199,8 @@ def _sample_t2i_tokens(
             image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
             image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
             image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+            noise_support=config.state.noise_support,
+            logit_mask=config.sampling.logit_mask,
             text_metadata=text_metadata,
             condition_image_tokens=None,
             condition_text_tokens=condition_text_tokens[start:stop],
@@ -232,6 +243,8 @@ def _sample_unconditional(
             image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
             image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
             image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+            noise_support=config.state.noise_support,
+            logit_mask=config.sampling.logit_mask,
             text_metadata=text_metadata,
             batch_size=current,
             condition_image_tokens=None,
@@ -242,7 +255,9 @@ def _sample_unconditional(
 
 
 def _normalized_token_histogram(tokens: torch.Tensor, codebook_size: int) -> torch.Tensor:
-    counts = torch.bincount(tokens.detach().cpu().long().reshape(-1), minlength=codebook_size).float()
+    flat = tokens.detach().cpu().long().reshape(-1)
+    valid = flat.ge(0).logical_and(flat.lt(codebook_size))
+    counts = torch.bincount(flat[valid], minlength=codebook_size).float()
     return counts / counts.sum().clamp_min(1.0)
 
 
@@ -411,8 +426,10 @@ def run_t2i_token_guard(
         condition_text_tokens=condition_text_tokens,
         batch_size=config.train.eval_batch_size,
     )
+    conditioned_invalid_mask = image_token_invalid_mask(generated_tokens, layout)
+    conditioned_safe_tokens = safe_image_tokens(generated_tokens, layout)
     with torch.no_grad():
-        generated_logits = probe(generated_tokens.to(device))
+        generated_logits = probe(conditioned_safe_tokens.to(device))
         generated_pred_indices = generated_logits.argmax(dim=1).detach().cpu()
     condition_indices_cpu = condition_class_indices.detach().cpu()
     conditioned_confusion = confusion_matrix(
@@ -435,9 +452,13 @@ def run_t2i_token_guard(
             batch_size=config.train.eval_batch_size,
         )
         uncond_image_tokens = unconditional[:, layout.image_slice]
-        uncond_text_tokens = unconditional[:, layout.text_slice] - layout.text_offset
+        uncond_text_shifted = unconditional[:, layout.text_slice]
+        uncond_image_invalid_mask = image_token_invalid_mask(uncond_image_tokens, layout)
+        uncond_text_invalid_mask = text_token_invalid_mask(uncond_text_shifted, layout)
+        uncond_safe_image_tokens = safe_image_tokens(uncond_image_tokens, layout)
+        uncond_text_tokens = safe_text_tokens(uncond_text_shifted, layout, text_metadata)
         with torch.no_grad():
-            uncond_pred_indices = probe(uncond_image_tokens.to(device)).argmax(dim=1).detach().cpu()
+            uncond_pred_indices = probe(uncond_safe_image_tokens.to(device)).argmax(dim=1).detach().cpu()
         uncond_text_values = label_values_from_text_tokens(uncond_text_tokens, text_metadata).detach().cpu()
         uncond_pred_values = _labels_for_class_indices(uncond_pred_indices, label_values.detach().cpu())
         valid_text = uncond_text_values.ne(-1)
@@ -451,6 +472,8 @@ def run_t2i_token_guard(
             "unconditional_token_text_consistency": float(consistency),
             "unconditional_valid_text_consistency": float(valid_consistency),
             "unconditional_valid_text_fraction": float(valid_text.float().mean().item()),
+            "unconditional_invalid_image_token_rate": invalid_rate(uncond_image_invalid_mask),
+            "unconditional_invalid_text_token_rate": invalid_rate(uncond_text_invalid_mask),
             "unconditional_token_pred_histogram": _jsonable_counter(Counter(uncond_pred_values.tolist())),
             "unconditional_text_value_histogram": _jsonable_counter(Counter(uncond_text_values.tolist())),
         }
@@ -468,6 +491,7 @@ def run_t2i_token_guard(
     token_hist_l1 = float((real_hist - generated_hist).abs().sum().item())
     avg_unique_per_sample = float(torch.tensor([row.unique().numel() for row in generated_tokens]).float().mean().item())
     total_unique = int(generated_tokens.unique().numel())
+    valid_total_unique = int(conditioned_safe_tokens.unique().numel())
 
     labels = [str(int(value)) for value in label_values.detach().cpu().tolist()]
     confusion_path = run_context.log_path("visuals/conditioned_token_confusion.png")
@@ -478,7 +502,7 @@ def run_t2i_token_guard(
         **_maybe_decode_pixel_grid(
             config=config,
             tokenizer_state=tokenizer_state,
-            generated_tokens=generated_tokens,
+            generated_tokens=conditioned_safe_tokens,
             condition_class_indices=condition_indices_cpu,
             token_pred_indices=generated_pred_indices,
             label_values=label_values.detach().cpu(),
@@ -522,12 +546,14 @@ def run_t2i_token_guard(
         "final_real_probe": snapshots[-1] if snapshots else {},
         "conditioned_token_label_accuracy": conditioned_accuracy,
         "conditioned_total": int(generated_tokens.shape[0]),
+        "conditioned_invalid_image_token_rate": invalid_rate(conditioned_invalid_mask),
         "conditioned_confusion": conditioned_confusion.tolist(),
         "conditioned_per_label_accuracy": _per_class_accuracy_from_confusion(conditioned_confusion),
         "conditioned_token_pred_histogram": _jsonable_counter(
             Counter(_labels_for_class_indices(generated_pred_indices, label_values.detach().cpu()).tolist())
         ),
         "generated_unique_token_count": total_unique,
+        "generated_valid_unique_token_count": valid_total_unique,
         "generated_avg_unique_tokens_per_sample": avg_unique_per_sample,
         "generated_vs_real_test_token_histogram_l1": token_hist_l1,
         **uncond_metrics,

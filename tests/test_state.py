@@ -61,6 +61,14 @@ def test_sample_masked_noise_zeroes_invalid_dimensions():
     assert torch.all(noise[:, 2:, :4] == 0)
 
 
+def test_sample_unmasked_noise_keeps_full_vocab_support():
+    torch.manual_seed(0)
+    x1 = torch.zeros(2, 5, 7)
+    noise = sample_masked_noise(x1, None)
+    assert torch.any(noise[:, :2, 4:] != 0)
+    assert torch.any(noise[:, 2:, :4] != 0)
+
+
 def test_condition_clean_timesteps_sets_conditioned_positions_to_one():
     t_pos = torch.tensor([[0.2, 0.3, 0.7, 0.8], [0.4, 0.5, 0.8, 0.9]])
     adjusted = condition_clean_timesteps(

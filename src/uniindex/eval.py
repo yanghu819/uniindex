@@ -12,7 +12,7 @@ from tqdm import tqdm
 from .classifier import classify_images, classifier_path, load_classifier
 from .config import ProjectConfig
 from .data import build_loader, split_path
-from .layout import TaskLayout, mask_logits
+from .layout import TaskLayout, mask_logits, maybe_mask_logits
 from .model import UnifiedDenoiser
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
@@ -35,6 +35,32 @@ _EVAL_RNG_BRANCH_OFFSETS = {
     "unconditional": 30_000,
 }
 _SQRT_2 = 2.0**0.5
+
+
+def image_token_invalid_mask(tokens: torch.Tensor, layout: TaskLayout) -> torch.Tensor:
+    tokens = tokens.long()
+    return tokens.lt(0).logical_or(tokens.ge(layout.codebook_size))
+
+
+def text_token_invalid_mask(shifted_tokens: torch.Tensor, layout: TaskLayout) -> torch.Tensor:
+    shifted_tokens = shifted_tokens.long()
+    return shifted_tokens.lt(layout.text_offset).logical_or(shifted_tokens.ge(layout.vocab_size))
+
+
+def safe_image_tokens(tokens: torch.Tensor, layout: TaskLayout) -> torch.Tensor:
+    invalid = image_token_invalid_mask(tokens, layout)
+    safe = tokens.long().masked_fill(invalid, 0)
+    return safe.clamp(0, max(layout.codebook_size - 1, 0))
+
+
+def safe_text_tokens(shifted_tokens: torch.Tensor, layout: TaskLayout, text_metadata) -> torch.Tensor:
+    invalid = text_token_invalid_mask(shifted_tokens, layout)
+    unshifted = shifted_tokens.long() - layout.text_offset
+    return unshifted.masked_fill(invalid, int(text_metadata.pad_id))
+
+
+def invalid_rate(mask: torch.Tensor) -> float:
+    return float(mask.float().mean().item()) if mask.numel() else 0.0
 
 
 def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
@@ -283,6 +309,8 @@ def _sample_unified_with_logits(
     image_to_text_candidate_score_progress: list[float] | None = None,
     image_to_text_candidate_score_num_noise: int = 1,
     image_to_text_candidate_score_blend_weight: float = 0.0,
+    noise_support: str = "modality_vocab",
+    logit_mask: str = "modality",
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -338,6 +366,10 @@ def _sample_unified_with_logits(
             "image_to_text_candidate_score_blend_weight must be >= 0, "
             f"got {image_to_text_candidate_score_blend_weight}"
         )
+    if noise_support not in {"modality_vocab", "full_vocab"}:
+        raise ValueError(f"unsupported state noise_support: {noise_support}")
+    if logit_mask not in {"modality", "none"}:
+        raise ValueError(f"unsupported sampling logit_mask: {logit_mask}")
 
     device = next(model.parameters()).device
     batch = batch_size or 1
@@ -347,8 +379,12 @@ def _sample_unified_with_logits(
         batch = condition_text_tokens.shape[0]
 
     modality_ids = layout.position_modalities().to(device)
-    valid_token_mask = layout.position_valid_token_mask().to(device)
-    z_t = sample_masked_noise(torch.zeros(batch, layout.seq_len, layout.vocab_size, device=device), valid_token_mask)
+    modality_valid_token_mask = layout.position_valid_token_mask().to(device)
+    noise_valid_token_mask = None if noise_support == "full_vocab" else modality_valid_token_mask
+    z_t = sample_masked_noise(
+        torch.zeros(batch, layout.seq_len, layout.vocab_size, device=device),
+        noise_valid_token_mask,
+    )
 
     text_targets = None
     if condition_image_tokens is not None:
@@ -443,8 +479,7 @@ def _sample_unified_with_logits(
                 condition_text=condition_text_tokens is not None,
             )
 
-        logits = model(z_t, t_pos, modality_ids)
-        logits = mask_logits(logits, layout=layout)
+        logits = maybe_mask_logits(model(z_t, t_pos, modality_ids), layout=layout, mode=logit_mask)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
         v_t = (probs - z_t) / (1.0 - t_pos).unsqueeze(-1).clamp_min(1e-4)
         z_t = z_t + dt_pos.unsqueeze(-1) * v_t
@@ -476,7 +511,7 @@ def _sample_unified_with_logits(
             z_t[:, layout.text_slice] = mix_flm_noise(
                 projected_clean,
                 next_t_pos[:, layout.text_slice],
-                valid_token_mask[layout.text_slice],
+                None if noise_valid_token_mask is None else noise_valid_token_mask[layout.text_slice],
             )
 
     if final_decode == "final_model_call":
@@ -503,8 +538,7 @@ def _sample_unified_with_logits(
             condition_image=condition_image_tokens is not None,
             condition_text=condition_text_tokens is not None,
         )
-        final_logits = model(z_t, final_t_pos, modality_ids)
-        final_logits = mask_logits(final_logits, layout=layout)
+        final_logits = maybe_mask_logits(model(z_t, final_t_pos, modality_ids), layout=layout, mode=logit_mask)
     else:
         if last_logits is None:
             raise RuntimeError("last endpoint decode requires at least one sampling step")
@@ -534,6 +568,8 @@ def sample_unified(
     image_to_text_candidate_score_progress: list[float] | None = None,
     image_to_text_candidate_score_num_noise: int = 1,
     image_to_text_candidate_score_blend_weight: float = 0.0,
+    noise_support: str = "modality_vocab",
+    logit_mask: str = "modality",
     text_metadata=None,
     batch_size: int | None = None,
     condition_image_tokens: torch.Tensor | None = None,
@@ -560,6 +596,8 @@ def sample_unified(
         image_to_text_candidate_score_progress=image_to_text_candidate_score_progress,
         image_to_text_candidate_score_num_noise=image_to_text_candidate_score_num_noise,
         image_to_text_candidate_score_blend_weight=image_to_text_candidate_score_blend_weight,
+        noise_support=noise_support,
+        logit_mask=logit_mask,
         text_metadata=text_metadata,
         batch_size=batch_size,
         condition_image_tokens=condition_image_tokens,
@@ -750,6 +788,10 @@ def evaluate(
         base_seed=eval_sampling_seed,
         device=device,
     )
+    invalid_text_token_count = 0
+    invalid_text_token_total = 0
+    invalid_image_token_count = 0
+    invalid_image_token_total = 0
 
     for batch in tqdm(test_loader, desc="eval"):
         image_tokens = batch["image_tokens"].to(device)
@@ -783,11 +825,15 @@ def evaluate(
                     image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
                     image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
                     image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+                    noise_support=config.state.noise_support,
+                    logit_mask=config.sampling.logit_mask,
                     text_metadata=text_metadata,
                     condition_image_tokens=image_tokens,
                     condition_text_tokens=None,
                 )
-                sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
+                sampled_text_shifted = sampled_tokens[:, layout.text_slice]
+                sampled_text_invalid = text_token_invalid_mask(sampled_text_shifted, layout)
+                sampled_text = safe_text_tokens(sampled_text_shifted, layout, text_metadata)
                 constrained_values = constrained_text_label_values(
                     final_logits[:, layout.text_slice],
                     text_metadata,
@@ -844,15 +890,28 @@ def evaluate(
                 image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
                 image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
                 image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+                noise_support=config.state.noise_support,
+                logit_mask=config.sampling.logit_mask,
                 text_metadata=text_metadata,
                 condition_image_tokens=None,
                 condition_text_tokens=text_tokens,
             )[:, layout.image_slice]
-        decoded_images = _decode_image_tokens(tokenizer, sampled_images, tokenizer_state, grid_shape, device)
+        sampled_image_invalid = image_token_invalid_mask(sampled_images, layout)
+        decoded_images = _decode_image_tokens(
+            tokenizer,
+            safe_image_tokens(sampled_images, layout),
+            tokenizer_state,
+            grid_shape,
+            device,
+        )
         image_pred = classify_images(classifier, decoded_images, config.dataset.name)
         text_to_image_correct += (image_pred == labels).sum().item()
 
         total += labels.numel()
+        invalid_text_token_count += int(sampled_text_invalid.sum().item()) if image_to_text_decoder == "sample" else 0
+        invalid_text_token_total += int(sampled_text_invalid.numel()) if image_to_text_decoder == "sample" else 0
+        invalid_image_token_count += int(sampled_image_invalid.sum().item())
+        invalid_image_token_total += int(sampled_image_invalid.numel())
 
     uncond_count = config.eval.num_unconditional_samples
     with rng_streams.branch("unconditional"):
@@ -877,14 +936,29 @@ def evaluate(
             image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
             image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
             image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
+            noise_support=config.state.noise_support,
+            logit_mask=config.sampling.logit_mask,
             text_metadata=text_metadata,
             batch_size=uncond_count,
             condition_image_tokens=None,
             condition_text_tokens=None,
         )
-    uncond_images = _decode_image_tokens(tokenizer, sampled[:, layout.image_slice], tokenizer_state, grid_shape, device)
+    uncond_image_shifted = sampled[:, layout.image_slice]
+    uncond_text_shifted = sampled[:, layout.text_slice]
+    uncond_image_invalid = image_token_invalid_mask(uncond_image_shifted, layout)
+    uncond_text_invalid = text_token_invalid_mask(uncond_text_shifted, layout)
+    uncond_images = _decode_image_tokens(
+        tokenizer,
+        safe_image_tokens(uncond_image_shifted, layout),
+        tokenizer_state,
+        grid_shape,
+        device,
+    )
     uncond_image_pred = classify_images(classifier, uncond_images, config.dataset.name)
-    uncond_text_values = label_values_from_text_tokens(sampled[:, layout.text_slice] - layout.text_offset, text_metadata)
+    uncond_text_values = label_values_from_text_tokens(
+        safe_text_tokens(uncond_text_shifted, layout, text_metadata),
+        text_metadata,
+    )
     consistency = (uncond_image_pred == uncond_text_values.to(device)).float().mean().item()
 
     metrics = {
@@ -894,6 +968,10 @@ def evaluate(
         "image_to_text_label_accuracy_constrained": image_to_text_constrained_correct / max(total, 1),
         "text_to_image_accuracy": text_to_image_correct / max(total, 1),
         "unconditional_consistency": consistency,
+        "invalid_image_token_rate": invalid_image_token_count / max(invalid_image_token_total, 1),
+        "invalid_text_token_rate": invalid_text_token_count / max(invalid_text_token_total, 1),
+        "unconditional_invalid_image_token_rate": invalid_rate(uncond_image_invalid),
+        "unconditional_invalid_text_token_rate": invalid_rate(uncond_text_invalid),
     }
 
     metrics_path = run_context.log_path("metrics.json")
@@ -902,6 +980,9 @@ def evaluate(
 
     diagnostics = {
         "image_to_text_decoder": image_to_text_decoder,
+        "state_noise_support": config.state.noise_support,
+        "sampling_logit_mask": config.sampling.logit_mask,
+        "train_logit_mask": config.train.logit_mask,
         "final_model_progress": config.sampling.final_model_progress,
         "image_to_text_text_time_schedule": config.sampling.image_to_text_text_time_schedule,
         "image_to_text_logit_normal_loc": config.sampling.image_to_text_logit_normal_loc,
@@ -944,7 +1025,10 @@ def evaluate(
         json.dump(diagnostics, handle, indent=2)
 
     preview = {
-        "generated_text_strings": decode_text_tokens(sampled[:, layout.text_slice] - layout.text_offset, text_metadata),
+        "generated_text_strings": decode_text_tokens(
+            safe_text_tokens(sampled[:, layout.text_slice], layout, text_metadata),
+            text_metadata,
+        ),
         "image_to_text_generated_text_counts": dict(generated_text_counter.most_common(32)),
         "label_strings": list(text_metadata.label_strings),
     }
