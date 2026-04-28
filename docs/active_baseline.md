@@ -994,6 +994,29 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The first full remote run launched twice and hit uninterruptible checkpoint I/O; both stale processes were stopped, the optimizer state was removed from probe checkpoints, and the clean `liteckpt` run was restarted from a fresh run stamp.
 - Next action: stop trying pixel decode and stop broad schedule sweeps. The next useful probe should target conditional control over long image-token sequences: either image-token compression/block-wise generation, a dedicated image endpoint head, or set-CE plus an explicit label-conditional contrast/energy term that penalizes generated-token classifier mismatch.
 
+## Recent label-control distributional t2i probe
+
+- Run window: `2026-04-28T06:13:35Z` to `2026-04-28T06:19:42Z` (`2026-04-28 14:13:35-14:19:42 CST`).
+- Code state: GitHub SHA `deca613e21c0c522da2eb17b54d67e4fc804a892`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/t2i_distributional/20260428T061334Z-label-control-full/summary.json`.
+- Method:
+  - start from `models/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/checkpoints/stage2_latest.pt`
+  - keep image-only dense simplex state and `set_ce_k16`
+  - add a frozen VQ-token label probe as an explicit endpoint control loss on generated image-token probabilities
+  - compare `label_control_weight=0.5` and `1.0`
+  - evaluate with token guard and `diagnose-i2t` at progress `0.5`, `0.9`, and `0.95`
+- Token-generation results:
+  - `label_control_weight=0.5`: conditioned token-label `0.8999999761581421`, predicted histogram `{"0": 4, "1": 4, "2": 4, "3": 4, "4": 4, "5": 4, "6": 4, "7": 8, "9": 4}`, unique token count `72`, avg unique/sample `26.700000762939453`, hist L1 `1.0321532487869263`, uncond consistency `0.5`
+  - `label_control_weight=1.0`: conditioned token-label `0.5249999761581421`, predicted histogram `{"0": 4, "1": 4, "2": 3, "3": 3, "6": 8, "7": 8, "8": 2, "9": 8}`, unique token count `40`, avg unique/sample `17.899999618530273`, hist L1 `1.2897919416427612`, uncond consistency `0.0`
+- i2t diagnostics after best checkpoint:
+  - `label_control_weight=0.5`: progress `0.5` exact/label/token `0.1328125 / 0.2265625 / 0.56640625`; progress `0.9` `0.171875 / 0.2109375 / 0.5859375`; progress `0.95` `0.1796875 / 0.1953125 / 0.58984375`
+  - `label_control_weight=1.0`: progress `0.5` exact/label/token `0.09375 / 0.2734375 / 0.546875`; progress `0.9` `0.0703125 / 0.2421875 / 0.53515625`; progress `0.95` `0.0625 / 0.234375 / 0.53125`
+- Decision: do not promote either checkpoint as a unified model. The `0.5` control is a strong proof that class-conditioned generation can be forced at the token endpoint, but it narrows the image-token distribution and still leaves i2t far below the unified threshold. The `1.0` control overpowers the distributional objective and degrades both diversity and i2t.
+- Insight: the remaining bottleneck is not "can FLM represent the label". It can: explicit endpoint control moves token-label accuracy from `0.20` to `0.90`. The bottleneck is preserving a realistic long image-token distribution while enforcing class control. This points to softer/late control, classifier-free guidance over endpoint energy, block-wise image generation, or a dedicated endpoint head; it does not justify more gamma/schedule sweeps.
+- Silent fallbacks:
+  - The first smoke generated configs with a new `artifacts_dir`, which missed the existing tokenized SigLIP-VQ dataset. The config generation was corrected to reuse the base artifacts directory while isolating `models/runs/logs`.
+  - The full runner script initially failed before launch due to a closed file handle while generating the shell script. It was regenerated cleanly under the run directory and launched with `setsid`.
+
 ## Archived local trees
 
 - `visualize-joint-work`
