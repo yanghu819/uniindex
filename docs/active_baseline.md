@@ -1156,6 +1156,40 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The first status poll caught a slow prepare/smoke phase rather than a failure; the run was left alone and completed normally.
   - Pixel decode stayed disabled because token-level metrics already isolate the remaining issue.
 
+## Recent minimal unified extra-long Gaussian continuation
+
+- Run window: `2026-04-28T09:47:56Z` to `2026-04-28T10:01:42Z` (`2026-04-28 17:47:56-18:01:42 CST`).
+- Code state: GitHub SHA `7bce0eff438b24f2068b1b8924e79b3787f117d8`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/minimal_unified_longer/20260428T095050Z-minimal-unified-gaussian-continue8000/summary.json`.
+- Config: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/configs_generated/minimal_unified_longer/20260428T095050Z-minimal-unified-gaussian-continue8000/continue_8000step.yaml`.
+- Base checkpoint: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/models/siglipvq_minimal_unified_longer_img512/20260428T093012Z-minimal-unified-gaussian-2000/full-80-2000/checkpoints/stage2_latest.pt`.
+- Method:
+  - Continue the clean minimal unified Gaussian run for another `8000` stage2 steps, reaching roughly `10000` total stage2 steps.
+  - Keep the same simple setup: full concat vocab, no train/sampling logit mask, no candidate projection, no final model call, no sequence loss, no semantic token, no label-control.
+  - Run token diagnostics only after training: `diagnose-i2t` at `0.5/0.9/0.95` and `probe-t2i-token-guard`.
+- i2t result:
+  - Progress `0.5`: exact `0.8671875`, token `0.93359375`, label `0.8671875`, invalid text token rate `0.0`.
+  - Progress `0.9`: exact `0.8828125`, token `0.94140625`, label `0.8828125`, invalid text token rate `0.0`.
+  - Progress `0.95`: exact `0.875`, token `0.9375`, label `0.875`, invalid text token rate `0.0`.
+  - Generated labels are broad and no longer single-mode at all three progress values.
+- t2i token result:
+  - Conditioned token-label accuracy is still chance-like at `0.07500000298023224`.
+  - Predicted histogram: `{"3": 4, "4": 3, "6": 27, "7": 6}` across `40` conditioned samples.
+  - Generated unique token count jumps to `769`, and avg unique tokens/sample rises to `149.47500610351562`.
+  - Generated-vs-real token histogram L1 improves further to `0.4066070318222046`.
+- Decision:
+  - Longer training clearly solves much of image-to-text understanding under the minimal no-trick setup.
+  - Longer training does not solve text-to-image semantic control; the image-token distribution improves, but the generated images do not reliably follow the text label.
+  - Do not reintroduce sampler shortcuts. The next clean question is why the same unified objective learns `image -> text` much faster than `text -> image`.
+- Insight:
+  - The core bottleneck is now asymmetric conditional control, not legality, tokenizer validity, or lack of training time in general.
+  - Image-to-text is easy because one image has one label; text-to-image is one-to-many over a long VQ sequence, so hard endpoint training can learn realistic token marginal statistics without learning label-conditioned mode selection.
+  - This supports a simple scalable direction: keep the minimal full-vocab FLM, but add a principled text-conditioned image endpoint/distribution objective or block-wise image generation, not local sampler fixes.
+- Silent fallbacks:
+  - The extra-long run reused the existing `2000`-step checkpoint instead of restarting from scratch, so the experiment answered the intended "train longer" question cheaply.
+  - Pixel decode stayed disabled because token guard already showed the t2i failure before any diffusion/pixel decoder would matter.
+  - The runner kept all generated configs, models, and runs under `/fangxueji/Projects/PG/uniindex`; no checkpoint or cache artifact was written to GitHub.
+
 ## Archived local trees
 
 - `visualize-joint-work`
