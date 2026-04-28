@@ -1017,6 +1017,31 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The first smoke generated configs with a new `artifacts_dir`, which missed the existing tokenized SigLIP-VQ dataset. The config generation was corrected to reuse the base artifacts directory while isolating `models/runs/logs`.
   - The full runner script initially failed before launch due to a closed file handle while generating the shell script. It was regenerated cleanly under the run directory and launched with `setsid`.
 
+## Recent soft/late label-control probe
+
+- Run window: `2026-04-28T06:44:48Z` to `2026-04-28T06:55:36Z` (`2026-04-28 14:44:48-14:55:36 CST`).
+- Code state: GitHub SHA `5f62bc2a3904b8311575cf81f5ee66955a96f93c`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/t2i_distributional/20260428T064448Z-soft-label-control-full/summary.json`.
+- Code change: `probe-t2i-distributional-ft` now supports `label_control_schedule = constant | late_step | linear_ramp` and `label_control_start_fraction`. The default `constant` schedule preserves prior fixed-weight behavior.
+- Method:
+  - start from `models/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512/checkpoints/stage2_latest.pt`
+  - keep image-only dense simplex state and `set_ce_k16`
+  - compare baseline no label control against `linear_ramp` and `late_step`, both final weight `0.5`, start fraction `0.5`
+  - evaluate with token guard and `diagnose-i2t` at progress `0.5`, `0.9`, and `0.95`
+- Token-generation results:
+  - `baseline_setce`: conditioned token-label `0.20000000298023224`, predicted histogram `{"2": 8, "3": 16, "7": 16}`, unique token count `384`, avg unique/sample `164.8000030517578`, hist L1 `0.5990386605262756`, uncond consistency `0.10000000149011612`
+  - `linear_ramp_w050_s050`: conditioned token-label `0.5`, predicted histogram `{"0": 4, "1": 4, "3": 12, "4": 8, "5": 4, "9": 8}`, unique token count `352`, avg unique/sample `147.47500610351562`, hist L1 `0.6695831418037415`, uncond consistency `0.20000000298023224`
+  - `late_step_w050_s050`: conditioned token-label `0.5`, predicted histogram `{"1": 8, "3": 4, "4": 8, "6": 8, "7": 12}`, unique token count `358`, avg unique/sample `149.10000610351562`, hist L1 `0.6234802007675171`, uncond consistency `0.30000001192092896`
+- i2t diagnostics at progress `0.5`:
+  - `baseline_setce`: exact/label/token `0.2890625 / 0.2890625 / 0.64453125`
+  - `linear_ramp_w050_s050`: exact/label/token `0.203125 / 0.21875 / 0.6015625`
+  - `late_step_w050_s050`: exact/label/token `0.21875 / 0.2421875 / 0.609375`
+- Decision: do not promote these checkpoints. Neither soft schedule reaches the target `conditioned_token_label_accuracy >= 0.60` or i2t progress-0.5 exact/label `>= 0.50`. However, soft/late control is clearly healthier than hard control: it lifts token-label accuracy from `0.20` to `0.50` while keeping unique token counts above `350` and hist L1 below `0.75`.
+- Insight: label endpoint control should not be discarded; it is useful, but `0.5` is still too much when applied in the last half of a 500-step probe. The next tight experiment should try softer final weights `0.25` and `0.35`, preferably with `linear_ramp` first, before moving to classifier-free endpoint guidance or a dedicated endpoint head.
+- Silent fallbacks:
+  - The first remote progress check found the process briefly in `D` I/O wait with no log progress. It recovered without intervention, so the runner was not killed.
+  - The 2-step smoke only exercised the zero-weight portion of `linear_ramp`, but unit tests covered start/mid/end schedule values and the full run confirmed nonzero effective weights in train logs.
+
 ## Archived local trees
 
 - `visualize-joint-work`
