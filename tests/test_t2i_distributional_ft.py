@@ -8,6 +8,7 @@ from uniindex.t2i_distributional_ft import (
     _record_distributional_eval_steps,
     build_image_simplex_state,
     build_label_candidate_bank_from_batches,
+    label_control_effective_weight,
     label_control_loss,
     set_ce_k_loss,
     vq_token_probe_soft_logits,
@@ -140,3 +141,84 @@ def test_distributional_eval_steps_default_and_custom():
     assert _record_distributional_eval_steps(500) == [0, 100, 300, 500]
     assert _record_distributional_eval_steps(2) == [0, 2]
     assert _record_distributional_eval_steps(500, (150, 450)) == [0, 150, 450, 500]
+
+
+def test_label_control_effective_weight_constant_preserves_old_behavior():
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="constant",
+            start_fraction=0.5,
+            step=0,
+            total_steps=500,
+        )
+        == 0.5
+    )
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="constant",
+            start_fraction=0.5,
+            step=250,
+            total_steps=500,
+        )
+        == 0.5
+    )
+
+
+def test_label_control_effective_weight_late_step_switches_at_start_fraction():
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="late_step",
+            start_fraction=0.5,
+            step=249,
+            total_steps=500,
+        )
+        == 0.0
+    )
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="late_step",
+            start_fraction=0.5,
+            step=250,
+            total_steps=500,
+        )
+        == 0.5
+    )
+
+
+def test_label_control_effective_weight_linear_ramp_reaches_final_weight():
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="linear_ramp",
+            start_fraction=0.5,
+            step=250,
+            total_steps=500,
+        )
+        == 0.0
+    )
+    assert torch.isclose(
+        torch.tensor(
+            label_control_effective_weight(
+                final_weight=0.5,
+                schedule="linear_ramp",
+                start_fraction=0.5,
+                step=375,
+                total_steps=500,
+            )
+        ),
+        torch.tensor(0.25),
+    )
+    assert (
+        label_control_effective_weight(
+            final_weight=0.5,
+            schedule="linear_ramp",
+            start_fraction=0.5,
+            step=500,
+            total_steps=500,
+        )
+        == 0.5
+    )

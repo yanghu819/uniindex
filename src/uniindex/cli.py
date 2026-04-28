@@ -164,6 +164,12 @@ def _parser() -> argparse.ArgumentParser:
     probe_t2i_distributional_ft.add_argument("--unconditional-count", type=int, default=10)
     probe_t2i_distributional_ft.add_argument("--label-control-weight", type=float, default=0.0)
     probe_t2i_distributional_ft.add_argument("--label-control-temperature", type=float, default=1.0)
+    probe_t2i_distributional_ft.add_argument(
+        "--label-control-schedule",
+        choices=["constant", "late_step", "linear_ramp"],
+        default="constant",
+    )
+    probe_t2i_distributional_ft.add_argument("--label-control-start-fraction", type=float, default=0.5)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -572,6 +578,8 @@ def _run_probe_t2i_distributional_ft(
     unconditional_count: int,
     label_control_weight: float,
     label_control_temperature: float,
+    label_control_schedule: str,
+    label_control_start_fraction: float,
 ) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -593,6 +601,8 @@ def _run_probe_t2i_distributional_ft(
             unconditional_count=unconditional_count,
             label_control_weight=label_control_weight,
             label_control_temperature=label_control_temperature,
+            label_control_schedule=label_control_schedule,
+            label_control_start_fraction=label_control_start_fraction,
             run_context=run_context,
         )
         run_context.update_status("ok")
@@ -786,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
             unconditional_count=args.unconditional_count,
             label_control_weight=args.label_control_weight,
             label_control_temperature=args.label_control_temperature,
+            label_control_schedule=args.label_control_schedule,
+            label_control_start_fraction=args.label_control_start_fraction,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)

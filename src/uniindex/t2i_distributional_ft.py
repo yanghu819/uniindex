@@ -36,6 +36,7 @@ from .train import _task_time_schedule, latest_checkpoint_path
 DEFAULT_DISTRIBUTIONAL_EVAL_STEPS = (100, 300, 500)
 DISTRIBUTIONAL_LOSSES = ("hard_ce", "set_ce_k16")
 DISTRIBUTIONAL_STATES = ("simplex",)
+LABEL_CONTROL_SCHEDULES = ("constant", "late_step", "linear_ramp")
 
 
 def _source_checkpoint_path(config: ProjectConfig) -> Path:
@@ -224,6 +225,39 @@ def label_control_loss(
     return loss, accuracy
 
 
+def label_control_effective_weight(
+    *,
+    final_weight: float,
+    schedule: str,
+    start_fraction: float,
+    step: int,
+    total_steps: int,
+) -> float:
+    if final_weight < 0.0:
+        raise ValueError(f"final_weight must be >= 0, got {final_weight}")
+    if schedule not in LABEL_CONTROL_SCHEDULES:
+        raise ValueError(f"unsupported label control schedule {schedule!r}")
+    if not 0.0 <= float(start_fraction) <= 1.0:
+        raise ValueError(f"start_fraction must be in [0, 1], got {start_fraction}")
+    if total_steps < 1:
+        raise ValueError(f"total_steps must be >= 1, got {total_steps}")
+
+    target = float(final_weight)
+    if schedule == "constant" or target == 0.0:
+        return target
+
+    fraction = max(0.0, min(1.0, float(step) / float(total_steps)))
+    start = float(start_fraction)
+    if schedule == "late_step":
+        return target if fraction >= start else 0.0
+
+    if fraction <= start:
+        return 0.0
+    if start >= 1.0:
+        return target if fraction >= 1.0 else 0.0
+    return target * min(1.0, (fraction - start) / (1.0 - start))
+
+
 def _reset_sampling_seed(config: ProjectConfig, device: torch.device) -> None:
     seed = config.eval.sampling_seed if config.eval.sampling_seed is not None else config.train.seed
     torch.manual_seed(int(seed))
@@ -379,7 +413,9 @@ def _distributional_train_step(
     token_probe: VQTokenLabelProbe | None,
     label_control_weight: float,
     label_control_temperature: float,
-) -> dict[str, float]:
+    label_control_schedule: str,
+    label_control_start_fraction: float,
+) -> dict[str, object]:
     if loss_kind not in DISTRIBUTIONAL_LOSSES:
         raise ValueError(f"unsupported distributional loss {loss_kind!r}")
     if state_kind not in DISTRIBUTIONAL_STATES:
@@ -447,7 +483,10 @@ def _distributional_train_step(
         "label_control_loss": float(label_loss.detach().cpu().item()),
         "label_control_accuracy": label_accuracy,
         "label_control_weight": float(label_control_weight),
+        "label_control_effective_weight": float(label_control_weight),
         "label_control_temperature": float(label_control_temperature),
+        "label_control_schedule": label_control_schedule,
+        "label_control_start_fraction": float(label_control_start_fraction),
         "image_token_accuracy": image_token_accuracy,
         "progress_mean": float(progress.detach().cpu().mean().item()),
         "endpoint_fraction": float(progress.eq(0).float().detach().cpu().mean().item()),
@@ -477,6 +516,8 @@ def run_t2i_distributional_ft_probe(
     unconditional_count: int = 10,
     label_control_weight: float = 0.0,
     label_control_temperature: float = 1.0,
+    label_control_schedule: str = "constant",
+    label_control_start_fraction: float = 0.5,
     run_context: RunContext | None = None,
 ) -> dict:
     ensure_project_dirs(config)
@@ -495,6 +536,12 @@ def run_t2i_distributional_ft_probe(
         raise ValueError(f"label_control_weight must be >= 0, got {label_control_weight}")
     if label_control_temperature <= 0.0:
         raise ValueError(f"label_control_temperature must be > 0, got {label_control_temperature}")
+    if label_control_schedule not in LABEL_CONTROL_SCHEDULES:
+        raise ValueError(f"unsupported label control schedule {label_control_schedule!r}")
+    if not 0.0 <= float(label_control_start_fraction) <= 1.0:
+        raise ValueError(
+            f"label_control_start_fraction must be in [0, 1], got {label_control_start_fraction}"
+        )
 
     device = resolve_device(config.train.device, config.train.gpu_index)
     own_context = run_context is None
@@ -580,6 +627,13 @@ def run_t2i_distributional_ft_probe(
                 break
             batch = next(train_iter)
             batch = {key: value.to(device) for key, value in batch.items()}
+            effective_label_control_weight = label_control_effective_weight(
+                final_weight=float(label_control_weight),
+                schedule=label_control_schedule,
+                start_fraction=float(label_control_start_fraction),
+                step=step,
+                total_steps=steps,
+            )
             parts = _distributional_train_step(
                 model=model,
                 optimizer=optimizer,
@@ -594,10 +648,15 @@ def run_t2i_distributional_ft_probe(
                 candidate_bank=candidate_bank,
                 set_temperature=set_temperature,
                 token_probe=token_probe,
-                label_control_weight=label_control_weight,
+                label_control_weight=effective_label_control_weight,
                 label_control_temperature=label_control_temperature,
+                label_control_schedule=label_control_schedule,
+                label_control_start_fraction=label_control_start_fraction,
             )
-            append_jsonl(train_log, {"step": int(step + 1), **parts})
+            append_jsonl(
+                train_log,
+                {"step": int(step + 1), "label_control_final_weight": float(label_control_weight), **parts},
+            )
 
         best = max(history, key=_checkpoint_score)
         latest_path = latest_checkpoint_path(config, "stage2")
@@ -614,6 +673,8 @@ def run_t2i_distributional_ft_probe(
             "endpoint_prob": float(endpoint_prob),
             "label_control_weight": float(label_control_weight),
             "label_control_temperature": float(label_control_temperature),
+            "label_control_schedule": label_control_schedule,
+            "label_control_start_fraction": float(label_control_start_fraction),
             "lr": float(config.train.lr if lr is None else lr),
             "eval_steps": [int(step) for step in sorted(eval_step_set)],
             "samples_per_label": int(samples_per_label),
