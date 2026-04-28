@@ -162,6 +162,8 @@ def _parser() -> argparse.ArgumentParser:
     probe_t2i_distributional_ft.add_argument("--token-probe-eval-every", type=int, default=50)
     probe_t2i_distributional_ft.add_argument("--samples-per-label", type=int, default=4)
     probe_t2i_distributional_ft.add_argument("--unconditional-count", type=int, default=10)
+    probe_t2i_distributional_ft.add_argument("--label-control-weight", type=float, default=0.0)
+    probe_t2i_distributional_ft.add_argument("--label-control-temperature", type=float, default=1.0)
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
@@ -568,6 +570,8 @@ def _run_probe_t2i_distributional_ft(
     token_probe_eval_every: int,
     samples_per_label: int,
     unconditional_count: int,
+    label_control_weight: float,
+    label_control_temperature: float,
 ) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
@@ -587,6 +591,8 @@ def _run_probe_t2i_distributional_ft(
             token_probe_eval_every=token_probe_eval_every,
             samples_per_label=samples_per_label,
             unconditional_count=unconditional_count,
+            label_control_weight=label_control_weight,
+            label_control_temperature=label_control_temperature,
             run_context=run_context,
         )
         run_context.update_status("ok")
@@ -778,6 +784,8 @@ def main(argv: list[str] | None = None) -> int:
             token_probe_eval_every=args.token_probe_eval_every,
             samples_per_label=args.samples_per_label,
             unconditional_count=args.unconditional_count,
+            label_control_weight=args.label_control_weight,
+            label_control_temperature=args.label_control_temperature,
         )
     if args.command == "visualize":
         return _run_visualize(args.config)

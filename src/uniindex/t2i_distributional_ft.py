@@ -190,6 +190,40 @@ def set_ce_k_loss(
     return (-float(temperature) * (torch.logsumexp(-sequence_nll / float(temperature), dim=1) - log_candidate_count)).mean()
 
 
+def vq_token_probe_soft_logits(probe: VQTokenLabelProbe, image_probs: torch.Tensor) -> torch.Tensor:
+    if image_probs.ndim != 3:
+        raise ValueError(f"image_probs must have shape [batch, seq, codebook], got {tuple(image_probs.shape)}")
+    if image_probs.shape[-1] != probe.token_embed.num_embeddings:
+        raise ValueError(
+            "image_probs codebook dimension must match probe token embedding size, "
+            f"got {image_probs.shape[-1]} and {probe.token_embed.num_embeddings}"
+        )
+    positions = torch.arange(image_probs.shape[1], device=image_probs.device)
+    token_hidden = image_probs.to(dtype=probe.token_embed.weight.dtype) @ probe.token_embed.weight
+    hidden = token_hidden + probe.pos_embed(positions).unsqueeze(0)
+    return probe.head(probe.norm(hidden.mean(dim=1)))
+
+
+def label_control_loss(
+    *,
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    label_values: torch.Tensor,
+    token_probe: VQTokenLabelProbe,
+    layout: TaskLayout,
+    temperature: float,
+) -> tuple[torch.Tensor, float]:
+    if temperature <= 0.0:
+        raise ValueError(f"temperature must be > 0, got {temperature}")
+    image_logits = logits[:, layout.image_slice, : layout.codebook_size]
+    image_probs = F.softmax(image_logits / float(temperature), dim=-1)
+    control_logits = vq_token_probe_soft_logits(token_probe, image_probs)
+    targets = labels_to_class_indices(labels, label_values.to(labels.device))
+    loss = F.cross_entropy(control_logits, targets)
+    accuracy = float(control_logits.argmax(dim=1).eq(targets).float().mean().detach().cpu().item())
+    return loss, accuracy
+
+
 def _reset_sampling_seed(config: ProjectConfig, device: torch.device) -> None:
     seed = config.eval.sampling_seed if config.eval.sampling_seed is not None else config.train.seed
     torch.manual_seed(int(seed))
@@ -342,6 +376,9 @@ def _distributional_train_step(
     endpoint_prob: float,
     candidate_bank: torch.Tensor | None,
     set_temperature: float,
+    token_probe: VQTokenLabelProbe | None,
+    label_control_weight: float,
+    label_control_temperature: float,
 ) -> dict[str, float]:
     if loss_kind not in DISTRIBUTIONAL_LOSSES:
         raise ValueError(f"unsupported distributional loss {loss_kind!r}")
@@ -370,11 +407,11 @@ def _distributional_train_step(
 
     logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
     if loss_kind == "hard_ce":
-        loss = _image_hard_ce_loss(logits, image_tokens, layout)
+        base_loss = _image_hard_ce_loss(logits, image_tokens, layout)
     else:
         if candidate_bank is None:
             raise ValueError("set_ce_k16 requires a candidate_bank")
-        loss = set_ce_k_loss(
+        base_loss = set_ce_k_loss(
             logits=logits,
             labels=batch["label"],
             label_values=label_values,
@@ -382,6 +419,21 @@ def _distributional_train_step(
             layout=layout,
             temperature=set_temperature,
         )
+    loss = base_loss
+    label_loss = torch.zeros((), device=image_tokens.device)
+    label_accuracy = 0.0
+    if label_control_weight > 0.0:
+        if token_probe is None:
+            raise ValueError("label_control_weight requires a token_probe")
+        label_loss, label_accuracy = label_control_loss(
+            logits=logits,
+            labels=batch["label"],
+            label_values=label_values,
+            token_probe=token_probe,
+            layout=layout,
+            temperature=label_control_temperature,
+        )
+        loss = loss + float(label_control_weight) * label_loss
 
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
@@ -391,6 +443,11 @@ def _distributional_train_step(
     image_token_accuracy = float(image_logits.argmax(dim=-1).eq(image_tokens).float().mean().detach().cpu().item())
     return {
         "loss": float(loss.detach().cpu().item()),
+        "base_loss": float(base_loss.detach().cpu().item()),
+        "label_control_loss": float(label_loss.detach().cpu().item()),
+        "label_control_accuracy": label_accuracy,
+        "label_control_weight": float(label_control_weight),
+        "label_control_temperature": float(label_control_temperature),
         "image_token_accuracy": image_token_accuracy,
         "progress_mean": float(progress.detach().cpu().mean().item()),
         "endpoint_fraction": float(progress.eq(0).float().detach().cpu().mean().item()),
@@ -418,6 +475,8 @@ def run_t2i_distributional_ft_probe(
     token_probe_eval_every: int = 50,
     samples_per_label: int = 4,
     unconditional_count: int = 10,
+    label_control_weight: float = 0.0,
+    label_control_temperature: float = 1.0,
     run_context: RunContext | None = None,
 ) -> dict:
     ensure_project_dirs(config)
@@ -432,6 +491,10 @@ def run_t2i_distributional_ft_probe(
         raise ValueError(f"unsupported distributional loss {loss_kind!r}")
     if state_kind not in DISTRIBUTIONAL_STATES:
         raise ValueError(f"unsupported distributional state {state_kind!r}")
+    if label_control_weight < 0.0:
+        raise ValueError(f"label_control_weight must be >= 0, got {label_control_weight}")
+    if label_control_temperature <= 0.0:
+        raise ValueError(f"label_control_temperature must be > 0, got {label_control_temperature}")
 
     device = resolve_device(config.train.device, config.train.gpu_index)
     own_context = run_context is None
@@ -460,6 +523,8 @@ def run_t2i_distributional_ft_probe(
         run_context=run_context,
     )
     token_probe.eval()
+    for parameter in token_probe.parameters():
+        parameter.requires_grad_(False)
     real_hist = _real_test_token_histogram(config, layout.codebook_size)
 
     train_loader = build_loader(
@@ -528,6 +593,9 @@ def run_t2i_distributional_ft_probe(
                 endpoint_prob=endpoint_prob,
                 candidate_bank=candidate_bank,
                 set_temperature=set_temperature,
+                token_probe=token_probe,
+                label_control_weight=label_control_weight,
+                label_control_temperature=label_control_temperature,
             )
             append_jsonl(train_log, {"step": int(step + 1), **parts})
 
@@ -544,6 +612,8 @@ def run_t2i_distributional_ft_probe(
             "set_size": int(set_size),
             "set_temperature": float(set_temperature),
             "endpoint_prob": float(endpoint_prob),
+            "label_control_weight": float(label_control_weight),
+            "label_control_temperature": float(label_control_temperature),
             "lr": float(config.train.lr if lr is None else lr),
             "eval_steps": [int(step) for step in sorted(eval_step_set)],
             "samples_per_label": int(samples_per_label),

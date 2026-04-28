@@ -1,12 +1,16 @@
 import torch
+import torch.nn.functional as F
 
+from uniindex.label_feature_probe import VQTokenLabelProbe
 from uniindex.layout import TaskLayout
 from uniindex.state import build_flm_clean_state
 from uniindex.t2i_distributional_ft import (
     _record_distributional_eval_steps,
     build_image_simplex_state,
     build_label_candidate_bank_from_batches,
+    label_control_loss,
     set_ce_k_loss,
+    vq_token_probe_soft_logits,
 )
 
 
@@ -61,6 +65,58 @@ def test_set_ce_k_loss_rewards_matching_any_same_label_candidate():
     )
 
     assert matching.item() < random.item()
+
+
+def test_soft_token_probe_matches_hard_probe_on_one_hot_inputs():
+    probe = VQTokenLabelProbe(codebook_size=4, seq_len=3, num_classes=2, d_model=8)
+    tokens = torch.tensor([[0, 2, 3], [1, 1, 0]])
+    one_hot = F.one_hot(tokens, num_classes=4).float()
+
+    assert torch.allclose(vq_token_probe_soft_logits(probe, one_hot), probe(tokens), atol=1e-6)
+
+
+def test_label_control_loss_prefers_target_classifier_class():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=1, codebook_size=3, text_vocab_size=2)
+    probe = VQTokenLabelProbe(codebook_size=3, seq_len=2, num_classes=2, d_model=3)
+    with torch.no_grad():
+        probe.token_embed.weight.copy_(torch.eye(3))
+        probe.pos_embed.weight.zero_()
+        probe.norm.weight.fill_(1.0)
+        probe.norm.bias.zero_()
+        first = probe.head[0]
+        second = probe.head[2]
+        first.weight.copy_(torch.eye(3))
+        first.bias.zero_()
+        second.weight.zero_()
+        second.bias.zero_()
+        second.weight[0, 0] = 6.0
+        second.weight[1, 1] = 6.0
+    logits = torch.zeros(1, layout.seq_len, layout.vocab_size)
+    target_class_1 = logits.clone()
+    target_class_1[:, layout.image_slice, 1] = 8.0
+    target_class_0 = logits.clone()
+    target_class_0[:, layout.image_slice, 0] = 8.0
+
+    loss_good, acc_good = label_control_loss(
+        logits=target_class_1,
+        labels=torch.tensor([1]),
+        label_values=torch.tensor([0, 1]),
+        token_probe=probe,
+        layout=layout,
+        temperature=1.0,
+    )
+    loss_bad, acc_bad = label_control_loss(
+        logits=target_class_0,
+        labels=torch.tensor([1]),
+        label_values=torch.tensor([0, 1]),
+        token_probe=probe,
+        layout=layout,
+        temperature=1.0,
+    )
+
+    assert loss_good.item() < loss_bad.item()
+    assert acc_good == 1.0
+    assert acc_bad == 0.0
 
 
 def test_candidate_bank_keeps_labels_separate_and_repeats_small_classes():
