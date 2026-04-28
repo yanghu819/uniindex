@@ -341,6 +341,22 @@ def test_load_projection_progresses_config(tmp_path):
     assert config.eval.sampling_seed == 12345
 
 
+def test_load_nested_generated_config_uses_repository_root(tmp_path):
+    repo_root = tmp_path / "repo"
+    nested_dir = repo_root / "configs_generated" / "minimal_unified" / "run"
+    nested_dir.mkdir(parents=True)
+    (repo_root / "pyproject.toml").write_text("[project]\nname = \"fake\"\n", encoding="utf-8")
+    (repo_root / "src" / "uniindex").mkdir(parents=True)
+    raw = yaml.safe_load(Path("configs/smoke.yaml").read_text(encoding="utf-8"))
+    config_path = nested_dir / "smoke.yaml"
+    config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert config.repo_root == repo_root.resolve()
+    assert config.paths.cache_dir == (repo_root / raw["paths"]["cache_dir"]).resolve()
+
+
 def test_load_i2t_power_short_configs():
     expected = {
         "configs/flm_joint_work_fullvocab_short_i2tp20_tsw075.yaml": 2.0,

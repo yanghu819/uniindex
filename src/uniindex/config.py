@@ -188,6 +188,13 @@ def _resolve(base: Path, raw: str) -> Path:
     return (base / raw).resolve()
 
 
+def _repo_root_for_config(config_path: Path) -> Path:
+    for candidate in (config_path.parent, *config_path.parents):
+        if (candidate / "pyproject.toml").is_file() and (candidate / "src" / "uniindex").is_dir():
+            return candidate.resolve()
+    return config_path.parent.parent.resolve()
+
+
 def _default_text_strings(dataset_name: str, label_values: list[int]) -> list[str]:
     mnist_map = {
         0: "zero",
@@ -474,7 +481,7 @@ def load_config(path: str | Path) -> ProjectConfig:
     with config_path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle)
 
-    repo_root = config_path.parent.parent.resolve()
+    repo_root = _repo_root_for_config(config_path)
     paths = PathsConfig(
         data_dir=_resolve(repo_root, raw["paths"]["data_dir"]),
         artifacts_dir=_resolve(repo_root, raw["paths"]["artifacts_dir"]),
