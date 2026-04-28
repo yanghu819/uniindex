@@ -1042,6 +1042,47 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The first remote progress check found the process briefly in `D` I/O wait with no log progress. It recovered without intervention, so the runner was not killed.
   - The 2-step smoke only exercised the zero-weight portion of `linear_ramp`, but unit tests covered start/mid/end schedule values and the full run confirmed nonzero effective weights in train logs.
 
+## Recent minimal unified FLM baseline
+
+- Run window: `2026-04-28T07:55:44Z` to `2026-04-28T08:01:22Z` (`2026-04-28 15:55:44-16:01:22 CST`).
+- Code states:
+  - GitHub SHA `ab5394cb0f0acb62e21dac9ba2087c1f575c80a2`: added the minimal unified FLM switches and config.
+  - GitHub SHA `8cdade04e3963194d4c589fd917b6a6cab731cd3`: fixed nested `configs_generated/...` repo-root resolution before the successful run.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/minimal_unified/20260428T075547Z-minimal-unified/summary.json`.
+- Config: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/configs_generated/minimal_unified/20260428T075547Z-minimal-unified/full_500step.yaml`.
+- Method:
+  - SigLIP-VQ image tokens, label text, MNIST train `512` / test `128`.
+  - Use a single concat vocab and full-vocab Gaussian state noise: `state.noise_support = full_vocab`.
+  - Disable training and sampling logit masks: `train.logit_mask = none`, `sampling.logit_mask = none`.
+  - Disable candidate projection, final model call, sequence loss, semantic tokens, label-control, and i2t auxiliary losses.
+  - Run 2-step smoke first, then `80` stage1 + `500` stage2, then `diagnose-i2t` and `probe-t2i-token-guard`.
+- Legality result:
+  - `invalid_text_token_rate = 0.0` at i2t progress `0.5`, `0.9`, and `0.95`.
+  - `conditioned_invalid_image_token_rate = 0.0`.
+  - `unconditional_invalid_image_token_rate = 0.0`.
+  - `unconditional_invalid_text_token_rate = 0.0`.
+  - Conclusion: full-vocab Gaussian FLM can learn the legal image/text subspaces at this small scale without modality logit masks.
+- Understanding/generation result:
+  - i2t progress `0.5`: exact `0.1171875`, token `0.55859375`, constrained label `0.1171875`; generated text counts `{"one": 128}`.
+  - i2t progress `0.9`: exact `0.1171875`, token `0.55859375`, constrained label `0.1171875`; generated text counts `{"one": 128}`.
+  - i2t progress `0.95`: exact `0.1171875`, token `0.55859375`, constrained label `0.1171875`; generated text counts `{"one": 128}`.
+  - t2i token guard: conditioned token-label accuracy `0.10000000149011612`.
+  - t2i predicted histogram: `{"3": 40}` for all conditioned samples.
+  - Generated token diversity: unique token count `44`, valid unique token count `44`, avg unique/sample `35.04999923706055`, hist L1 `0.9602630138397217`.
+  - Unconditional consistency `0.0`; unconditional image-token classifier predicts `3` for all samples, while generated text resolves to `1` for all samples.
+- Decision:
+  - Do not promote this checkpoint. It is an important clean baseline, not a metric win.
+  - The result rejects the idea that modality masks are required merely to keep samples legal; invalid rates are already zero.
+  - The remaining bottleneck is semantic conditional control and distribution learning, not token legality.
+- Insight:
+  - The minimal unified FLM is simple and scalable, but `500` steps at this size learns a legal subspace before it learns image/text meaning.
+  - This points away from candidate/final/sequence shortcuts and toward scaling the simple baseline or changing the state path to a principled alternative.
+  - Next direct comparison should be `full_vocab Gaussian` versus `full_vocab simplex/uniform-to-onehot` under the same no-mask/no-trick setup, or a longer/wider minimal baseline curve if compute is cheap.
+- Silent fallbacks:
+  - The first remote run failed because nested generated configs made `load_config` infer `configs_generated/minimal_unified` as the repo root. `load_config` now walks upward to find `pyproject.toml` and `src/uniindex`, preserving the old fallback for temp configs.
+  - The failed run also exposed that the existing SigLIP-VQ cache lives under `/fangxueji/Projects/PG/uniindex/.cache`; after restoring the project cache, the successful run reused it through the existing worktree `.cache -> ../../.cache` link.
+  - No pixel decode was run. Token-level diagnostics were enough and avoided mixing pixel-decoder availability into the minimal FLM baseline.
+
 ## Archived local trees
 
 - `visualize-joint-work`
