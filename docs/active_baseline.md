@@ -1121,6 +1121,41 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The runner generated unique smoke/full configs under `configs_generated/minimal_unified_simplex/...`, keeping committed configs clean and all artifacts under `/fangxueji/Projects/PG/uniindex`.
   - Pixel decode stayed disabled because token guard already showed collapse before any image decoder would matter.
 
+## Recent minimal unified longer Gaussian run
+
+- Run window: `2026-04-28T09:27:04Z` to `2026-04-28T09:35:28Z` (`2026-04-28 17:27:04-17:35:28 CST`).
+- Code state: GitHub SHA `597d9b2784808580b3262c3af177d3aae883054a`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/minimal_unified_longer/20260428T093012Z-minimal-unified-gaussian-2000/summary.json`.
+- Config: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/configs_generated/minimal_unified_longer/20260428T093012Z-minimal-unified-gaussian-2000/full_2000step.yaml`.
+- Method:
+  - Keep the minimal unified Gaussian baseline: full vocab, no train/sampling logit mask, no candidate projection, no final model call, no sequence loss, no semantic token, no label-control.
+  - Change only training length from `80` stage1 + `500` stage2 to `80` stage1 + `2000` stage2.
+  - Run token-level diagnostics only: `diagnose-i2t` at `0.5/0.9/0.95` and `probe-t2i-token-guard`.
+- i2t result:
+  - Progress `0.5`: exact `0.3046875`, token `0.65234375`, label `0.3046875`, invalid text token rate `0.0`.
+  - Progress `0.9`: exact `0.328125`, token `0.6640625`, label `0.328125`, invalid text token rate `0.0`.
+  - Progress `0.95`: exact `0.296875`, token `0.6484375`, label `0.296875`, invalid text token rate `0.0`.
+  - Generated texts are no longer single-mode: `{"six": 29, "three": 27, "zero": 26, "four": 19, "two": 12, "one": 7, "nine": 7, "eight": 1}` at progress `0.5`.
+- t2i token result:
+  - Conditioned token-label accuracy remains `0.10000000149011612`.
+  - Predicted histogram becomes more diverse: `{"1": 12, "3": 5, "4": 3, "6": 1, "7": 19}`.
+  - Generated unique token count rises to `186` from the 500-step baseline's `44`.
+  - Generated-vs-real token histogram L1 improves to `0.5473785400390625` from the 500-step baseline's `0.9602630138397217`.
+  - Invalid image/text token rates are `0.0`.
+  - Unconditional token/text consistency remains `0.0`.
+- Decision:
+  - Longer training is useful and should stay on the table: it substantially improves i2t and image-token distribution quality.
+  - Longer training alone does not solve text-conditioned t2i control; conditioned token-label accuracy is still chance.
+  - This suggests the clean minimal baseline is undertrained for representation/distribution, but missing a scalable conditional-control mechanism for text-to-image.
+- Insight:
+  - This is the first clean no-trick result showing real scaling signal: no masks, no shortcuts, and longer training improves legality, diversity, histogram match, and i2t.
+  - The failure is now narrower: not "FLM cannot learn the token distribution", but "the current unified objective does not make text conditioning dominate image endpoint selection."
+  - The next simple scalable iteration should be either a longer curve with checkpoint probes (`500/1000/2000/4000`) or a minimal classifier-free endpoint guidance objective; avoid returning to candidate/final/sequence hacks.
+- Silent fallbacks:
+  - The runner used generated configs under `configs_generated/minimal_unified_longer/...`, so no repo code/config changed for the experiment.
+  - The first status poll caught a slow prepare/smoke phase rather than a failure; the run was left alone and completed normally.
+  - Pixel decode stayed disabled because token-level metrics already isolate the remaining issue.
+
 ## Archived local trees
 
 - `visualize-joint-work`
