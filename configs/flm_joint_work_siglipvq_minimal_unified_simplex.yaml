@@ -1,12 +1,12 @@
 project:
-  name: uniindex-siglipvq-minimal-unified-img512
+  name: uniindex-siglipvq-minimal-unified-simplex-img512
 
 paths:
   data_dir: data
   artifacts_dir: artifacts/siglipvq_generation_labeltoken_semantic_vqtoken_probe_img512
-  models_dir: models/siglipvq_minimal_unified_img512
-  runs_dir: runs/siglipvq_minimal_unified_img512
-  logs_dir: logs/siglipvq_minimal_unified_img512
+  models_dir: models/siglipvq_minimal_unified_simplex_img512
+  runs_dir: runs/siglipvq_minimal_unified_simplex_img512
+  logs_dir: logs/siglipvq_minimal_unified_simplex_img512
   cache_dir: .cache
 
 tokenizer:
@@ -42,7 +42,7 @@ model:
 
 state:
   noise_support: full_vocab
-  path: gaussian
+  path: simplex
 
 train:
   seed: 42

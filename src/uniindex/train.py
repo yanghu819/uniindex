@@ -13,7 +13,7 @@ from .layout import TaskLayout, mask_logits, maybe_mask_logits, unified_targets
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
-from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
+from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_state
 from .task_schedule import task_for_step
 from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens
 
@@ -45,23 +45,26 @@ def _build_zt(
     layout: TaskLayout,
     task: str,
     valid_token_mask: torch.Tensor | None,
+    state_path: str = "gaussian",
 ) -> torch.Tensor:
     if task == "joint":
-        return mix_flm_noise(x1, t_pos, valid_token_mask)
+        return mix_flm_state(x1, t_pos, path=state_path, valid_token_mask=valid_token_mask)
     z_t = x1.clone()
     if task == "text_to_image":
         image_valid_token_mask = None if valid_token_mask is None else valid_token_mask[layout.image_slice]
-        z_t[:, layout.image_slice] = mix_flm_noise(
+        z_t[:, layout.image_slice] = mix_flm_state(
             x1[:, layout.image_slice],
             t_pos[:, layout.image_slice],
-            image_valid_token_mask,
+            path=state_path,
+            valid_token_mask=image_valid_token_mask,
         )
     elif task == "image_to_text":
         text_valid_token_mask = None if valid_token_mask is None else valid_token_mask[layout.text_slice]
-        z_t[:, layout.text_slice] = mix_flm_noise(
+        z_t[:, layout.text_slice] = mix_flm_state(
             x1[:, layout.text_slice],
             t_pos[:, layout.text_slice],
-            text_valid_token_mask,
+            path=state_path,
+            valid_token_mask=text_valid_token_mask,
         )
     else:
         raise ValueError(f"unknown task {task}")
@@ -156,6 +159,7 @@ def _image_to_text_semantic_label_loss(
     valid_token_mask: torch.Tensor | None,
     text_time: float,
     pool: str = "image",
+    state_path: str = "gaussian",
 ) -> torch.Tensor:
     t_pos = torch.full(
         (x1.shape[0], layout.seq_len),
@@ -169,7 +173,7 @@ def _image_to_text_semantic_label_loss(
         condition_image=True,
         condition_text=False,
     )
-    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
+    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask, state_path)
     hidden = model.forward_features(z_t, t_pos, modality_ids, include_extra_tokens=pool == "semantic")
     pooled = _pool_semantic_hidden(hidden, layout, pool)
     class_targets = _labels_to_class_indices(labels, label_values)
@@ -201,13 +205,14 @@ def _image_text_mismatch_loss(
     text_targets: torch.Tensor,
     candidate_text_targets: torch.Tensor,
     margin: float,
+    state_path: str = "gaussian",
 ) -> torch.Tensor:
     if x1.shape[0] < 2:
         return torch.zeros((), device=x1.device)
     shifted_x1 = x1.roll(shifts=1, dims=0)
     mismatched = x1.clone()
     mismatched[:, layout.image_slice] = shifted_x1[:, layout.image_slice]
-    z_t = _build_zt(mismatched, t_pos, layout, "image_to_text", valid_token_mask)
+    z_t = _build_zt(mismatched, t_pos, layout, "image_to_text", valid_token_mask, state_path)
     mismatch_logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
     candidate_targets = candidate_text_targets.to(mismatch_logits.device)
     scores = sequence_candidate_scores(mismatch_logits[:, layout.text_slice], candidate_targets)
@@ -242,6 +247,7 @@ def _image_to_text_label_loss(
     text_targets: torch.Tensor,
     candidate_text_targets: torch.Tensor,
     text_time: float,
+    state_path: str = "gaussian",
 ) -> torch.Tensor:
     t_pos = torch.full(
         (x1.shape[0], layout.seq_len),
@@ -255,7 +261,7 @@ def _image_to_text_label_loss(
         condition_image=True,
         condition_text=False,
     )
-    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask)
+    z_t = _build_zt(x1, t_pos, layout, "image_to_text", valid_token_mask, state_path)
     label_logits = mask_logits(model(z_t, t_pos, modality_ids), layout=layout)
     return _sequence_text_loss(
         text_logits=label_logits[:, layout.text_slice],
@@ -284,6 +290,7 @@ def _loss_for_task(
     image_to_text_label_weight: float = 0.0,
     image_to_text_label_text_time: float = 0.0,
     logit_mask: str = "modality",
+    state_path: str = "gaussian",
 ) -> tuple[torch.Tensor, dict[str, float]]:
     masked = maybe_mask_logits(logits, layout=layout, mode=logit_mask)
     img_logits = masked[:, layout.image_slice].reshape(-1, masked.shape[-1])
@@ -316,6 +323,7 @@ def _loss_for_task(
             text_targets=text_targets,
             candidate_text_targets=label_text_tokens.to(masked.device),
             margin=image_to_text_mismatch_margin,
+            state_path=state_path,
         )
     label_loss = torch.zeros((), device=masked.device)
     if image_to_text_label_weight > 0.0 and task == "image_to_text":
@@ -330,6 +338,7 @@ def _loss_for_task(
             text_targets=text_targets,
             candidate_text_targets=label_text_tokens.to(masked.device),
             text_time=image_to_text_label_text_time,
+            state_path=state_path,
         )
 
     if task == "joint":
@@ -474,7 +483,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             text_time_cap=config.train.image_to_text_text_time_cap,
             noise_only_prob=config.train.image_to_text_noise_only_prob,
         )
-        z_t = _build_zt(x1, t_pos, layout, task, noise_valid_token_mask)
+        z_t = _build_zt(x1, t_pos, layout, task, noise_valid_token_mask, config.state.path)
         logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
             logits=logits,
@@ -496,6 +505,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             image_to_text_label_weight=config.train.image_to_text_label_weight,
             image_to_text_label_text_time=config.train.image_to_text_label_text_time,
             logit_mask=config.train.logit_mask,
+            state_path=config.state.path,
         )
         semantic_label_loss = torch.zeros((), device=device)
         if semantic_label_head is not None and task == "image_to_text":
@@ -510,6 +520,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
                 valid_token_mask=noise_valid_token_mask,
                 text_time=config.train.image_to_text_semantic_text_time,
                 pool=config.train.image_to_text_semantic_pool,
+                state_path=config.state.path,
             )
             loss = loss + config.train.image_to_text_semantic_weight * semantic_label_loss
         parts["semantic_label_loss"] = float(semantic_label_loss.item())

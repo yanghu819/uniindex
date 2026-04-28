@@ -130,6 +130,7 @@ class SamplingConfig:
 @dataclass(frozen=True)
 class StateConfig:
     noise_support: str = "modality_vocab"
+    path: str = "gaussian"
 
 
 @dataclass(frozen=True)
@@ -413,10 +414,15 @@ def _normalize_sampling_config(raw_sampling: dict[str, Any]) -> dict[str, Any]:
 def _normalize_state_config(raw: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(raw.get("state", {}))
     normalized.setdefault("noise_support", "modality_vocab")
+    normalized.setdefault("path", "gaussian")
     noise_support = str(normalized["noise_support"])
     if noise_support not in {"modality_vocab", "full_vocab"}:
         raise ValueError(f"unsupported state.noise_support: {noise_support}")
     normalized["noise_support"] = noise_support
+    path = str(normalized["path"])
+    if path not in {"gaussian", "simplex"}:
+        raise ValueError(f"unsupported state.path: {path}")
+    normalized["path"] = path
     return normalized
 
 

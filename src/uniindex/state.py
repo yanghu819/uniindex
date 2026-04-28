@@ -19,15 +19,48 @@ def sample_masked_noise(x1: torch.Tensor, valid_token_mask: torch.Tensor | None 
     return noise
 
 
-def mix_flm_noise(x1: torch.Tensor, t: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
+def _mix_weight(t: torch.Tensor) -> torch.Tensor:
     if t.dim() == 1:
-        weight = t[:, None, None]
-    elif t.dim() == 2:
-        weight = t.unsqueeze(-1)
-    else:
-        raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
+        return t[:, None, None]
+    if t.dim() == 2:
+        return t.unsqueeze(-1)
+    raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
+
+
+def mix_flm_noise(x1: torch.Tensor, t: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
+    weight = _mix_weight(t)
     noise = sample_masked_noise(x1, valid_token_mask)
     return (1.0 - weight) * noise + weight * x1
+
+
+def simplex_uniform_base(x1: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
+    if valid_token_mask is None:
+        return torch.full_like(x1, 1.0 / x1.shape[-1])
+    mask = valid_token_mask.to(device=x1.device, dtype=x1.dtype)
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0)
+    denom = mask.sum(dim=-1, keepdim=True).clamp_min(1.0)
+    return mask / denom
+
+
+def mix_flm_simplex(x1: torch.Tensor, t: torch.Tensor, valid_token_mask: torch.Tensor | None = None) -> torch.Tensor:
+    weight = _mix_weight(t)
+    base = simplex_uniform_base(x1, valid_token_mask)
+    return (1.0 - weight) * base + weight * x1
+
+
+def mix_flm_state(
+    x1: torch.Tensor,
+    t: torch.Tensor,
+    *,
+    path: str = "gaussian",
+    valid_token_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    if path == "gaussian":
+        return mix_flm_noise(x1, t, valid_token_mask)
+    if path == "simplex":
+        return mix_flm_simplex(x1, t, valid_token_mask)
+    raise ValueError(f"unsupported FLM state path: {path}")
 
 
 def condition_clean_timesteps(

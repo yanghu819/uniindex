@@ -5,6 +5,8 @@ from uniindex.schedule import apply_schedule
 from uniindex.state import (
     build_flm_clean_state,
     condition_clean_timesteps,
+    mix_flm_simplex,
+    mix_flm_state,
     restore_image_tokens,
     sample_masked_noise,
 )
@@ -67,6 +69,42 @@ def test_sample_unmasked_noise_keeps_full_vocab_support():
     noise = sample_masked_noise(x1, None)
     assert torch.any(noise[:, :2, 4:] != 0)
     assert torch.any(noise[:, 2:, :4] != 0)
+
+
+def test_mix_flm_simplex_returns_positionwise_probabilities():
+    targets = torch.tensor([[1, 3, 0]])
+    x1 = build_flm_clean_state(targets, vocab_size=5)
+    t_pos = torch.tensor([[0.0, 0.5, 1.0]])
+    z_t = mix_flm_simplex(x1, t_pos)
+    assert torch.all(z_t >= 0)
+    assert torch.allclose(z_t.sum(dim=-1), torch.ones(1, 3))
+    assert torch.allclose(z_t[:, 0], torch.full((1, 5), 0.2))
+    assert torch.equal(z_t[:, 2].argmax(dim=-1), torch.tensor([0]))
+
+
+def test_full_vocab_simplex_keeps_cross_modal_support():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=4, text_vocab_size=3)
+    image_tokens = torch.tensor([[0, 1]])
+    text_tokens = torch.tensor([[4, 5]])
+    x1 = build_flm_clean_state(torch.cat([image_tokens, text_tokens], dim=1), layout.vocab_size)
+    z_t = mix_flm_state(x1, torch.zeros(1, layout.seq_len), path="simplex", valid_token_mask=None)
+    assert torch.allclose(z_t.sum(dim=-1), torch.ones(1, layout.seq_len))
+    assert torch.all(z_t[:, layout.image_slice, layout.codebook_size :] > 0)
+    assert torch.all(z_t[:, layout.text_slice, : layout.codebook_size] > 0)
+
+
+def test_modality_masked_simplex_can_still_restrict_support():
+    layout = TaskLayout(image_seq_len=2, text_seq_len=2, codebook_size=4, text_vocab_size=3)
+    x1 = torch.zeros(1, layout.seq_len, layout.vocab_size)
+    z_t = mix_flm_state(
+        x1,
+        torch.zeros(1, layout.seq_len),
+        path="simplex",
+        valid_token_mask=layout.position_valid_token_mask(),
+    )
+    assert torch.allclose(z_t.sum(dim=-1), torch.ones(1, layout.seq_len))
+    assert torch.all(z_t[:, layout.image_slice, layout.codebook_size :] == 0)
+    assert torch.all(z_t[:, layout.text_slice, : layout.codebook_size] == 0)
 
 
 def test_condition_clean_timesteps_sets_conditioned_positions_to_one():
