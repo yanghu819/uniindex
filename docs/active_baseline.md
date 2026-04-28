@@ -1083,6 +1083,44 @@ The label-feature probe, direct text-decoder probe, and semantic-token probe shi
   - The failed run also exposed that the existing SigLIP-VQ cache lives under `/fangxueji/Projects/PG/uniindex/.cache`; after restoring the project cache, the successful run reused it through the existing worktree `.cache -> ../../.cache` link.
   - No pixel decode was run. Token-level diagnostics were enough and avoided mixing pixel-decoder availability into the minimal FLM baseline.
 
+## Recent minimal unified simplex path probe
+
+- Run window: `2026-04-28T09:04:07Z` to `2026-04-28T09:09:50Z` (`2026-04-28 17:04:07-17:09:50 CST`).
+- Code state: GitHub SHA `2ab0c5701b8b925db9e7e34a8fa4ea17c856e607`.
+- Runner summary: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/runs/minimal_unified_simplex/20260428T090712Z-minimal-unified-simplex/summary.json`.
+- Config: `/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/configs_generated/minimal_unified_simplex/20260428T090712Z-minimal-unified-simplex/full_500step.yaml`.
+- Method:
+  - Keep the same minimal unified no-mask/no-trick setup as the Gaussian baseline.
+  - Change only the training state path: `state.path = simplex`, with full-vocab uniform-to-onehot interpolation for image and text positions.
+  - Sampling remains the existing FLM sampler, so this run isolates training state path only.
+  - Run 2-step smoke first, then `80` stage1 + `500` stage2, then `diagnose-i2t` and `probe-t2i-token-guard`.
+- Legality result:
+  - i2t `invalid_text_token_rate`: `0.044270833333333336` at progress `0.5`, then `0.0` at progress `0.9` and `0.95`.
+  - t2i `conditioned_invalid_image_token_rate = 0.0002197265566792339`.
+  - t2i `unconditional_invalid_image_token_rate = 9.765625145519152e-05`.
+  - `unconditional_invalid_text_token_rate = 0.0`.
+  - Conclusion: simplex mostly learns the legal subspace, but it is slightly less clean than the Gaussian minimal baseline at the same short budget.
+- Understanding/generation result:
+  - i2t progress `0.5`: exact `0.1171875`, token `0.53125`, constrained label `0.1328125`; generated text counts `{"one": 89, "three": 29, "": 10}`.
+  - i2t progress `0.9`: exact `0.109375`, token `0.5546875`, constrained label `0.109375`; generated text counts `{"one": 89, "three": 39}`.
+  - i2t progress `0.95`: exact `0.1015625`, token `0.55078125`, constrained label `0.1015625`; generated text counts `{"one": 106, "three": 22}`.
+  - t2i token guard: conditioned token-label accuracy `0.10000000149011612`.
+  - t2i predicted histogram: `{"6": 40}` for all conditioned samples.
+  - Generated token diversity: unique token count `53`, valid unique token count `52`, avg unique/sample `35.625`, hist L1 `1.4547377824783325`.
+  - Unconditional consistency `0.0`; unconditional image-token classifier predicts `6` for all samples.
+- Decision:
+  - Do not promote simplex path. It does not fix semantic collapse and makes the token histogram worse than the Gaussian baseline (`1.4547` versus `0.9603`).
+  - This rejects "simplex state path alone is the missing ingredient" for the current 80/500 minimal unified setup.
+  - The next iteration should not add sampler shortcuts. The clean options are scale the minimal baseline, compress/block image tokens, or add a simple scalable endpoint objective/head.
+- Insight:
+  - The core failure is not modality legality. Both Gaussian and simplex learn mostly legal outputs without masks.
+  - The core failure is conditional distribution learning over long image-token sequences: text conditions collapse to one class mode even when tokens are legal.
+  - Simplex may be a better probabilistic state representation in principle, but under this exact short budget it does not create semantic binding by itself.
+- Silent fallbacks:
+  - The initial remote launch command put the background job in the wrong shell precedence group, so the immediate `tail` tried `/run.log`. The actual runner had started correctly; the fallback was to inspect the real run directory and continue without restarting.
+  - The runner generated unique smoke/full configs under `configs_generated/minimal_unified_simplex/...`, keeping committed configs clean and all artifacts under `/fangxueji/Projects/PG/uniindex`.
+  - Pixel decode stayed disabled because token guard already showed collapse before any image decoder would matter.
+
 ## Archived local trees
 
 - `visualize-joint-work`
