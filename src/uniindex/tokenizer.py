@@ -70,7 +70,11 @@ class EmuVisionTokenizer(BaseVisionTokenizer):
     def __init__(self, model_name: str, trust_remote_code: bool, image_size: int, device: torch.device, dtype: torch.dtype) -> None:
         from transformers import AutoModel
 
-        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            trust_remote_code=trust_remote_code,
+            local_files_only=True,
+        )
         self.model.eval()
         self.model.to(device=device, dtype=dtype)
         self.device = device
