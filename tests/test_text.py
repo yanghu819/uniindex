@@ -50,6 +50,20 @@ def test_sequence_candidate_scores_prefers_matching_sequence():
     assert scores[0, 0] > scores[0, 1]
 
 
+def test_sequence_candidate_scores_can_ignore_padding_positions():
+    logits = torch.full((1, 3, 5), -10.0)
+    logits[0, 0, 1] = 10.0
+    logits[0, 1, 2] = 10.0
+    logits[0, 2, 4] = 10.0
+    candidate_tokens = torch.tensor([[1, 2, 0], [1, 2, 4]])
+    scores = sequence_candidate_scores(
+        logits,
+        candidate_tokens,
+        position_mask=torch.tensor([[True, True, False], [True, True, False]]),
+    )
+    assert torch.allclose(scores[0, 0], scores[0, 1])
+
+
 def test_decode_text_tokens_stops_at_eos_and_skips_bos():
     metadata = build_text_metadata(
         kind="char",

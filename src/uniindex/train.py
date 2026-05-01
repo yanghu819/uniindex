@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import torch
@@ -14,11 +16,26 @@ from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_devi
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
 from .task_schedule import task_for_step
-from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens
+from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens, text_scoring_mask
+
+
+def _checkpoint_namespace(config: ProjectConfig) -> str:
+    payload = {
+        "name": config.name,
+        "tokenizer": config.tokenizer.__dict__,
+        "dataset": config.dataset.__dict__,
+        "text": config.text.__dict__,
+        "labels": config.labels.__dict__,
+        "model": config.model.__dict__,
+        "train": config.train.__dict__,
+        "schedule": config.schedule.__dict__,
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:12]
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
-    path = config.paths.models_dir / "checkpoints" / f"{stage}_latest.pt"
+    path = config.paths.models_dir / "checkpoints" / _checkpoint_namespace(config) / f"{stage}_latest.pt"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -90,8 +107,9 @@ def _sequence_text_loss(
     text_logits: torch.Tensor,
     text_targets: torch.Tensor,
     candidate_text_targets: torch.Tensor,
+    candidate_position_mask: torch.Tensor,
 ) -> torch.Tensor:
-    scores = sequence_candidate_scores(text_logits, candidate_text_targets)
+    scores = sequence_candidate_scores(text_logits, candidate_text_targets, position_mask=candidate_position_mask)
     matches = text_targets.unsqueeze(1).eq(candidate_text_targets.unsqueeze(0)).all(dim=-1)
     if not torch.all(matches.any(dim=1)):
         raise ValueError("each text target row must exactly match one canonical text candidate")
@@ -107,6 +125,7 @@ def _loss_for_task(
     text_weight: float,
     text_pad_id: int,
     label_text_tokens: torch.Tensor,
+    label_text_mask: torch.Tensor,
     text_sequence_weight: float,
     task: str,
 ) -> tuple[torch.Tensor, dict[str, float]]:
@@ -126,6 +145,7 @@ def _loss_for_task(
             text_logits=text_logits,
             text_targets=text_targets,
             candidate_text_targets=label_text_tokens.to(masked.device),
+            candidate_position_mask=label_text_mask.to(masked.device),
         )
 
     if task == "joint":
@@ -190,6 +210,12 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         text_vocab_size=layout.text_vocab_size,
     )
     shifted_label_tokens = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size)
+    label_text_mask = text_scoring_mask(
+        text_metadata.label_text_tokens,
+        text_metadata,
+        include_bos=False,
+        include_eos=True,
+    )
 
     loader = build_loader(
         split_path(config, "train"),
@@ -250,6 +276,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
             text_weight=config.train.text_weight,
             text_pad_id=text_metadata.pad_id,
             label_text_tokens=shifted_label_tokens,
+            label_text_mask=label_text_mask,
             text_sequence_weight=config.train.text_sequence_weight,
             task=task,
         )

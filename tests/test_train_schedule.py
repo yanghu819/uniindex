@@ -2,7 +2,7 @@ import torch
 
 from uniindex.config import load_config
 from uniindex.task_schedule import task_for_step
-from uniindex.train import _task_time_schedule
+from uniindex.train import _task_time_schedule, latest_checkpoint_path
 
 
 def test_task_for_step_uses_configured_stage2_repeats():
@@ -37,3 +37,10 @@ def test_task_time_schedule_uses_image_to_text_override_for_empirical():
     }
     t_pos = _task_time_schedule(config, progress, modality_ids, schedule_tables, "image_to_text")
     assert torch.allclose(t_pos, torch.tensor([[0.5, 0.0625]]), atol=1e-6)
+
+
+def test_latest_checkpoint_path_is_config_namespaced():
+    base = load_config("configs/flm_understanding.yaml")
+    gpu80 = load_config("configs/flm_understanding_gpu80.yaml")
+    assert latest_checkpoint_path(base, "stage1") != latest_checkpoint_path(gpu80, "stage1")
+    assert latest_checkpoint_path(base, "stage1").name == "stage1_latest.pt"

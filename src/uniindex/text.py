@@ -159,7 +159,11 @@ def shifted_label_text_tokens(metadata: TextMetadata, token_offset: int = 0) -> 
     return metadata.label_text_tokens + int(token_offset)
 
 
-def sequence_candidate_scores(logits: torch.Tensor, candidate_tokens: torch.Tensor) -> torch.Tensor:
+def sequence_candidate_scores(
+    logits: torch.Tensor,
+    candidate_tokens: torch.Tensor,
+    position_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
     if logits.dim() != 3:
         raise ValueError(f"expected logits with shape (batch, seq, vocab), got {tuple(logits.shape)}")
     if candidate_tokens.dim() != 2:
@@ -175,6 +179,14 @@ def sequence_candidate_scores(logits: torch.Tensor, candidate_tokens: torch.Tens
     targets = candidate_tokens.to(logits.device, dtype=torch.long)
     if torch.any(targets.lt(0)) or torch.any(targets.ge(vocab_size)):
         raise ValueError("candidate token ids must stay within the logit vocabulary range")
+    if position_mask is None:
+        mask = torch.ones(num_candidates, seq_len, dtype=logits.dtype, device=logits.device)
+    else:
+        if position_mask.shape != candidate_tokens.shape:
+            raise ValueError(
+                f"position_mask shape {tuple(position_mask.shape)} does not match candidate_tokens shape {tuple(candidate_tokens.shape)}"
+            )
+        mask = position_mask.to(logits.device, dtype=logits.dtype)
 
     log_probs = F.log_softmax(logits, dim=-1)
     expanded_log_probs = log_probs.unsqueeze(1).expand(batch, num_candidates, seq_len, vocab_size)
@@ -182,4 +194,4 @@ def sequence_candidate_scores(logits: torch.Tensor, candidate_tokens: torch.Tens
         dim=-1,
         index=targets.unsqueeze(0).unsqueeze(-1).expand(batch, num_candidates, seq_len, 1),
     ).squeeze(-1)
-    return gathered.sum(dim=-1)
+    return (gathered * mask.unsqueeze(0)).sum(dim=-1)

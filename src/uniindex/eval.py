@@ -171,7 +171,13 @@ def constrained_text_label_values(
     codebook_size: int,
 ) -> torch.Tensor:
     candidate_tokens = shifted_label_text_tokens(text_metadata, token_offset=codebook_size).to(text_logits.device)
-    scores = sequence_candidate_scores(text_logits, candidate_tokens)
+    candidate_mask = text_scoring_mask(
+        text_metadata.label_text_tokens,
+        text_metadata,
+        include_bos=False,
+        include_eos=True,
+    ).to(text_logits.device)
+    scores = sequence_candidate_scores(text_logits, candidate_tokens, position_mask=candidate_mask)
     indices = scores.argmax(dim=1)
     label_values = torch.tensor(text_metadata.label_values, dtype=torch.long, device=text_logits.device)
     return label_values.index_select(0, indices)
