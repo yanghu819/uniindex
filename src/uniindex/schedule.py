@@ -109,8 +109,10 @@ def apply_schedule(
 
     image_schedule = schedule_tables["image"]
     text_schedule = schedule_tables["text"]
-    image_t = _lookup_progress(progress, image_schedule["progress_grid"], image_schedule["t_grid"])
-    text_t = _lookup_progress(progress, text_schedule["progress_grid"], text_schedule["t_grid"])
+    image_progress = progress.pow(float(image_time_power))
+    text_progress = progress.pow(float(text_time_power))
+    image_t = _lookup_progress(image_progress, image_schedule["progress_grid"], image_schedule["t_grid"])
+    text_t = _lookup_progress(text_progress, text_schedule["progress_grid"], text_schedule["t_grid"])
     return torch.where(
         modality_ids.unsqueeze(0).to(progress.device) == 0,
         image_t.unsqueeze(1),

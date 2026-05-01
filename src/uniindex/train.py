@@ -8,13 +8,13 @@ from tqdm import tqdm
 
 from .config import ProjectConfig
 from .data import build_loader, load_tokenizer_state, split_path
-from .layout import mask_logits, position_modalities, position_valid_token_mask, unified_targets, unified_vocab_size
+from .layout import TaskLayout, mask_logits, unified_targets
 from .model import UnifiedDenoiser
 from .runtime import RunContext, append_jsonl, ensure_project_dirs, resolve_device, set_seed
 from .schedule import apply_schedule, build_schedule_tables
 from .state import build_flm_clean_state, condition_clean_timesteps, mix_flm_noise
 from .task_schedule import task_for_step
-from .text import metadata_from_state
+from .text import metadata_from_state, sequence_candidate_scores, shifted_label_text_tokens
 
 
 def latest_checkpoint_path(config: ProjectConfig, stage: str) -> Path:
@@ -31,7 +31,7 @@ def _infinite(loader):
 def _build_zt(
     x1: torch.Tensor,
     t_pos: torch.Tensor,
-    image_seq_len: int,
+    layout: TaskLayout,
     task: str,
     valid_token_mask: torch.Tensor,
 ) -> torch.Tensor:
@@ -39,16 +39,16 @@ def _build_zt(
         return mix_flm_noise(x1, t_pos, valid_token_mask)
     z_t = x1.clone()
     if task == "text_to_image":
-        z_t[:, :image_seq_len] = mix_flm_noise(
-            x1[:, :image_seq_len],
-            t_pos[:, :image_seq_len],
-            valid_token_mask[:image_seq_len],
+        z_t[:, layout.image_slice] = mix_flm_noise(
+            x1[:, layout.image_slice],
+            t_pos[:, layout.image_slice],
+            valid_token_mask[layout.image_slice],
         )
     elif task == "image_to_text":
-        z_t[:, image_seq_len:] = mix_flm_noise(
-            x1[:, image_seq_len:],
-            t_pos[:, image_seq_len:],
-            valid_token_mask[image_seq_len:],
+        z_t[:, layout.text_slice] = mix_flm_noise(
+            x1[:, layout.text_slice],
+            t_pos[:, layout.text_slice],
+            valid_token_mask[layout.text_slice],
         )
     else:
         raise ValueError(f"unknown task {task}")
@@ -63,7 +63,7 @@ def _task_time_schedule(
     task: str,
 ) -> torch.Tensor:
     text_time = config.train.text_time_power
-    if schedule_tables["kind"] == "power" and task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
+    if task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
         text_time = config.train.image_to_text_text_time_power
     return apply_schedule(
         progress=progress,
@@ -86,26 +86,47 @@ def _masked_text_loss(
     return losses[valid].mean()
 
 
+def _sequence_text_loss(
+    text_logits: torch.Tensor,
+    text_targets: torch.Tensor,
+    candidate_text_targets: torch.Tensor,
+) -> torch.Tensor:
+    scores = sequence_candidate_scores(text_logits, candidate_text_targets)
+    matches = text_targets.unsqueeze(1).eq(candidate_text_targets.unsqueeze(0)).all(dim=-1)
+    if not torch.all(matches.any(dim=1)):
+        raise ValueError("each text target row must exactly match one canonical text candidate")
+    target_indices = matches.float().argmax(dim=1)
+    return F.cross_entropy(scores, target_indices)
+
+
 def _loss_for_task(
     logits: torch.Tensor,
     targets: torch.Tensor,
-    image_seq_len: int,
-    text_seq_len: int,
-    codebook_size: int,
-    text_vocab_size: int,
+    layout: TaskLayout,
     joint_weight: float,
     text_weight: float,
     text_pad_id: int,
+    label_text_tokens: torch.Tensor,
+    text_sequence_weight: float,
     task: str,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    masked = mask_logits(logits, image_seq_len, text_seq_len, codebook_size, text_vocab_size)
-    img_logits = masked[:, :image_seq_len].reshape(-1, masked.shape[-1])
-    img_targets = targets[:, :image_seq_len].reshape(-1)
-    txt_logits = masked[:, image_seq_len:].reshape(-1, masked.shape[-1])
-    txt_targets = targets[:, image_seq_len:].reshape(-1)
+    masked = mask_logits(logits, layout=layout)
+    img_logits = masked[:, layout.image_slice].reshape(-1, masked.shape[-1])
+    img_targets = targets[:, layout.image_slice].reshape(-1)
+    text_logits = masked[:, layout.text_slice]
+    txt_logits = text_logits.reshape(-1, masked.shape[-1])
+    text_targets = targets[:, layout.text_slice]
+    txt_targets = text_targets.reshape(-1)
 
     image_loss = F.cross_entropy(img_logits, img_targets)
-    text_loss = _masked_text_loss(txt_logits, txt_targets, text_pad_token=codebook_size + text_pad_id)
+    text_loss = _masked_text_loss(txt_logits, txt_targets, text_pad_token=layout.text_offset + text_pad_id)
+    sequence_loss = torch.zeros((), device=masked.device)
+    if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
+        sequence_loss = _sequence_text_loss(
+            text_logits=text_logits,
+            text_targets=text_targets,
+            candidate_text_targets=label_text_tokens.to(masked.device),
+        )
 
     if task == "joint":
         loss = joint_weight * image_loss + text_weight * text_loss
@@ -113,7 +134,14 @@ def _loss_for_task(
         loss = image_loss
     else:
         loss = text_loss
-    return loss, {"image_loss": float(image_loss.item()), "text_loss": float(text_loss.item())}
+    if text_sequence_weight > 0.0 and task in {"joint", "image_to_text"}:
+        loss = loss + text_sequence_weight * sequence_loss
+
+    return loss, {
+        "image_loss": float(image_loss.item()),
+        "text_loss": float(text_loss.item()),
+        "sequence_loss": float(sequence_loss.item()),
+    }
 
 
 def _save_checkpoint(
@@ -150,12 +178,18 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
 
     tokenizer_state = load_tokenizer_state(config)
     text_metadata = metadata_from_state(tokenizer_state)
-    codebook_size = int(tokenizer_state["codebook_size"])
-    image_seq_len = int(tokenizer_state["image_seq_len"])
-    text_seq_len = int(text_metadata.seq_len)
-    text_vocab_size = int(text_metadata.vocab_size)
-    vocab_size = unified_vocab_size(codebook_size, text_vocab_size)
-    schedule_tables = build_schedule_tables(config, image_vocab_size=codebook_size, text_vocab_size=text_vocab_size)
+    layout = TaskLayout(
+        image_seq_len=int(tokenizer_state["image_seq_len"]),
+        text_seq_len=int(text_metadata.seq_len),
+        codebook_size=int(tokenizer_state["codebook_size"]),
+        text_vocab_size=int(text_metadata.vocab_size),
+    )
+    schedule_tables = build_schedule_tables(
+        config,
+        image_vocab_size=layout.codebook_size,
+        text_vocab_size=layout.text_vocab_size,
+    )
+    shifted_label_tokens = shifted_label_text_tokens(text_metadata, token_offset=layout.codebook_size)
 
     loader = build_loader(
         split_path(config, "train"),
@@ -166,9 +200,9 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     train_iter = _infinite(loader)
 
     model = UnifiedDenoiser(
-        input_dim=vocab_size,
-        seq_len=image_seq_len + text_seq_len,
-        vocab_size=vocab_size,
+        input_dim=layout.vocab_size,
+        seq_len=layout.seq_len,
+        vocab_size=layout.vocab_size,
         d_model=config.model.d_model,
         n_heads=config.model.n_heads,
         n_layers=config.model.n_layers,
@@ -186,8 +220,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
     total_steps = config.train.stage1_steps if stage == "stage1" else config.train.stage2_steps
-    modality_ids = position_modalities(image_seq_len, text_seq_len).to(device)
-    valid_token_mask = position_valid_token_mask(image_seq_len, text_seq_len, codebook_size, text_vocab_size).to(device)
+    modality_ids = layout.position_modalities().to(device)
+    valid_token_mask = layout.position_valid_token_mask().to(device)
     train_log = run_context.log_path("train.jsonl")
 
     model.train()
@@ -195,29 +229,28 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         batch = next(train_iter)
         image_tokens = batch["image_tokens"].to(device)
         text_tokens = batch["text_tokens"].to(device)
-        targets = unified_targets(image_tokens, text_tokens, codebook_size)
-        x1 = build_flm_clean_state(targets, vocab_size).to(device)
+        targets = unified_targets(image_tokens, text_tokens, layout.codebook_size)
+        x1 = build_flm_clean_state(targets, layout.vocab_size).to(device)
         progress = torch.rand(image_tokens.shape[0], device=device)
         task = task_for_step(config, stage, step - 1)
         t_pos = _task_time_schedule(config, progress, modality_ids, schedule_tables, task)
         t_pos = condition_clean_timesteps(
             t_pos,
-            image_seq_len,
+            layout.image_seq_len,
             condition_image=task == "image_to_text",
             condition_text=task == "text_to_image",
         )
-        z_t = _build_zt(x1, t_pos, image_seq_len, task, valid_token_mask)
+        z_t = _build_zt(x1, t_pos, layout, task, valid_token_mask)
         logits = model(z_t, t_pos, modality_ids)
         loss, parts = _loss_for_task(
             logits=logits,
             targets=targets,
-            image_seq_len=image_seq_len,
-            text_seq_len=text_seq_len,
-            codebook_size=codebook_size,
-            text_vocab_size=text_vocab_size,
+            layout=layout,
             joint_weight=config.train.joint_weight,
             text_weight=config.train.text_weight,
             text_pad_id=text_metadata.pad_id,
+            label_text_tokens=shifted_label_tokens,
+            text_sequence_weight=config.train.text_sequence_weight,
             task=task,
         )
 
@@ -233,8 +266,8 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
                     "step": step,
                     "task": task,
                     "loss": float(loss.item()),
-                    "image_t_mean": float(t_pos[:, :image_seq_len].mean().item()),
-                    "text_t_mean": float(t_pos[:, image_seq_len:].mean().item()),
+                    "image_t_mean": float(t_pos[:, layout.image_slice].mean().item()),
+                    "text_t_mean": float(t_pos[:, layout.text_slice].mean().item()),
                     **parts,
                 },
             )

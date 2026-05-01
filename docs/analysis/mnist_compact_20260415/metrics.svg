@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="340" viewBox="0 0 880 340">
+<style>
+.title { font: 700 20px sans-serif; fill: #111827; }
+.subtitle { font: 12px sans-serif; fill: #4b5563; }
+.axis { font: 11px monospace; fill: #374151; }
+.label { font: 12px sans-serif; fill: #111827; }
+.small { font: 10px monospace; fill: #374151; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="34" class="title">MNIST Compact Baseline Metrics</text>
+<text x="24" y="54" class="subtitle">run 20260415T044225Z-eval, compact_vocab=true, unified-index + one-hot FLM</text>
+<line x1="180" y1="280.0" x2="800" y2="280.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="284.0" text-anchor="end" class="axis">0.0</text>
+<line x1="180" y1="238.0" x2="800" y2="238.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="242.0" text-anchor="end" class="axis">0.2</text>
+<line x1="180" y1="196.0" x2="800" y2="196.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="200.0" text-anchor="end" class="axis">0.4</text>
+<line x1="180" y1="154.0" x2="800" y2="154.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="158.0" text-anchor="end" class="axis">0.6</text>
+<line x1="180" y1="112.0" x2="800" y2="112.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="116.0" text-anchor="end" class="axis">0.8</text>
+<line x1="180" y1="70.0" x2="800" y2="70.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="168" y="74.0" text-anchor="end" class="axis">1.0</text>
+<text x="24" y="92" class="label">Tokenizer Ceiling</text>
+<rect x="180" y="70" width="620" height="34" fill="#f3f4f6" rx="6"/>
+<rect x="180" y="70" width="617.6" height="34" fill="#9ca3af" rx="6"/>
+<text x="807.6" y="92" class="axis">0.9961</text>
+<text x="24" y="144" class="label">Image -> Label</text>
+<rect x="180" y="122" width="620" height="34" fill="#f3f4f6" rx="6"/>
+<rect x="180" y="122" width="94.5" height="34" fill="#ef4444" rx="6"/>
+<text x="284.5" y="144" class="axis">0.1523</text>
+<text x="24" y="196" class="label">Label -> Image</text>
+<rect x="180" y="174" width="620" height="34" fill="#f3f4f6" rx="6"/>
+<rect x="180" y="174" width="498.9" height="34" fill="#10b981" rx="6"/>
+<text x="688.9" y="196" class="axis">0.8047</text>
+<text x="24" y="248" class="label">Unconditional</text>
+<rect x="180" y="226" width="620" height="34" fill="#f3f4f6" rx="6"/>
+<rect x="180" y="226" width="397.2" height="34" fill="#3b82f6" rx="6"/>
+<text x="587.2" y="248" class="axis">0.6406</text>
+</svg>

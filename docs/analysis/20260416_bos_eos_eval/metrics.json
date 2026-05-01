@@ -1,0 +1,10 @@
+{
+  "tokenizer_ceiling": 0.99609375,
+  "image_to_text_exact_match": 0.1171875,
+  "image_to_text_token_accuracy": 0.3441199684293607,
+  "image_to_text_label_accuracy_constrained": 0.1875,
+  "text_to_image_accuracy": 0.7890625,
+  "unconditional_consistency": 0.71875,
+  "image_to_label_accuracy": 0.1171875,
+  "label_to_image_accuracy": 0.7890625
+}

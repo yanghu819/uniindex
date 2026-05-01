@@ -1,0 +1,221 @@
+{
+  "image_to_text_grid": "/fangxueji/Projects/PG/uniindex/runs/20260416T040854Z-eval/visuals/image_to_text_grid.png",
+  "text_to_image_grid": "/fangxueji/Projects/PG/uniindex/runs/20260416T040854Z-eval/visuals/text_to_image_grid.png",
+  "unconditional_grid": "/fangxueji/Projects/PG/uniindex/runs/20260416T040854Z-eval/visuals/unconditional_grid.png",
+  "image_to_text_pairs": [
+    {
+      "gt": "seven",
+      "pred": "sigen",
+      "constrained_label": "seven"
+    },
+    {
+      "gt": "two",
+      "pred": "zire",
+      "constrained_label": "five"
+    },
+    {
+      "gt": "one",
+      "pred": "five",
+      "constrained_label": "five"
+    },
+    {
+      "gt": "zero",
+      "pred": "thre",
+      "constrained_label": "three"
+    },
+    {
+      "gt": "four",
+      "pred": "zero",
+      "constrained_label": "zero"
+    },
+    {
+      "gt": "one",
+      "pred": "three",
+      "constrained_label": "three"
+    },
+    {
+      "gt": "four",
+      "pred": "seven",
+      "constrained_label": "seven"
+    },
+    {
+      "gt": "nine",
+      "pred": "fove",
+      "constrained_label": "five"
+    },
+    {
+      "gt": "five",
+      "pred": "zero",
+      "constrained_label": "zero"
+    },
+    {
+      "gt": "nine",
+      "pred": "zevn",
+      "constrained_label": "seven"
+    },
+    {
+      "gt": "zero",
+      "pred": "eight",
+      "constrained_label": "eight"
+    },
+    {
+      "gt": "six",
+      "pred": "foux",
+      "constrained_label": "four"
+    },
+    {
+      "gt": "nine",
+      "pred": "fight",
+      "constrained_label": "eight"
+    },
+    {
+      "gt": "zero",
+      "pred": "four",
+      "constrained_label": "four"
+    },
+    {
+      "gt": "one",
+      "pred": "figh",
+      "constrained_label": "eight"
+    },
+    {
+      "gt": "five",
+      "pred": "tig",
+      "constrained_label": "eight"
+    }
+  ],
+  "image_to_text_batch_constrained_accuracy": 0.0625,
+  "image_to_text_batch_position_accuracy": [
+    0.0,
+    0.0625,
+    0.125,
+    0.0625,
+    0.125,
+    0.7272727489471436,
+    1.0
+  ],
+  "text_to_image_pairs": [
+    {
+      "condition": "zero",
+      "classifier_pred": "zero"
+    },
+    {
+      "condition": "one",
+      "classifier_pred": "one"
+    },
+    {
+      "condition": "two",
+      "classifier_pred": "three"
+    },
+    {
+      "condition": "three",
+      "classifier_pred": "three"
+    },
+    {
+      "condition": "four",
+      "classifier_pred": "four"
+    },
+    {
+      "condition": "five",
+      "classifier_pred": "seven"
+    },
+    {
+      "condition": "six",
+      "classifier_pred": "six"
+    },
+    {
+      "condition": "seven",
+      "classifier_pred": "zero"
+    },
+    {
+      "condition": "eight",
+      "classifier_pred": "eight"
+    },
+    {
+      "condition": "nine",
+      "classifier_pred": "nine"
+    }
+  ],
+  "unconditional_pairs": [
+    {
+      "text": "nine",
+      "text_label_value": 9,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "three",
+      "text_label_value": 3,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "zero",
+      "text_label_value": 0,
+      "classifier_pred": "zero"
+    },
+    {
+      "text": "three",
+      "text_label_value": 3,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "three",
+      "text_label_value": 3,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "eiget",
+      "text_label_value": -1,
+      "classifier_pred": "eight"
+    },
+    {
+      "text": "zero",
+      "text_label_value": 0,
+      "classifier_pred": "zero"
+    },
+    {
+      "text": "two",
+      "text_label_value": 2,
+      "classifier_pred": "two"
+    },
+    {
+      "text": "five",
+      "text_label_value": 5,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "figh",
+      "text_label_value": -1,
+      "classifier_pred": "six"
+    },
+    {
+      "text": "thr",
+      "text_label_value": -1,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "four",
+      "text_label_value": 4,
+      "classifier_pred": "four"
+    },
+    {
+      "text": "zero",
+      "text_label_value": 0,
+      "classifier_pred": "zero"
+    },
+    {
+      "text": "three",
+      "text_label_value": 3,
+      "classifier_pred": "three"
+    },
+    {
+      "text": "five",
+      "text_label_value": 5,
+      "classifier_pred": "seven"
+    },
+    {
+      "text": "thr",
+      "text_label_value": -1,
+      "classifier_pred": "three"
+    }
+  ]
+}

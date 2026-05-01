@@ -1,0 +1,6 @@
+{
+  "tokenizer_ceiling": 0.99609375,
+  "image_to_label_accuracy": 0.15234375,
+  "label_to_image_accuracy": 0.8046875,
+  "unconditional_consistency": 0.640625
+}

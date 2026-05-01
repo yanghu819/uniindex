@@ -1,6 +1,6 @@
 import torch
 
-from uniindex.layout import mask_logits
+from uniindex.layout import TaskLayout, mask_logits
 from uniindex.model import UnifiedDenoiser
 
 
@@ -41,7 +41,8 @@ def test_unified_denoiser_accepts_positionwise_time():
 
 
 def test_mask_logits_keeps_valid_regions():
-    logits = torch.zeros(2, 5, 12)
-    masked = mask_logits(logits, image_seq_len=4, text_seq_len=1, codebook_size=10, text_vocab_size=2)
+    layout = TaskLayout(image_seq_len=4, text_seq_len=1, codebook_size=10, text_vocab_size=2)
+    logits = torch.zeros(2, layout.seq_len, layout.vocab_size)
+    masked = mask_logits(logits, layout=layout)
     assert torch.isneginf(masked[:, :4, 10:]).all()
     assert torch.isneginf(masked[:, 4:, :10]).all()

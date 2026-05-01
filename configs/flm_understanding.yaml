@@ -54,6 +54,7 @@ train:
   save_every: 200
   joint_weight: 0.5
   text_weight: 1.0
+  text_sequence_weight: 0.5
   image_time_power: 1.0
   text_time_power: 0.25
   image_to_text_text_time_power: 4.0
