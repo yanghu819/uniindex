@@ -1,18 +1,18 @@
-# Robot Pre-Research Pivot
+# Scalable Understanding Pre-Research Pivot
 
 Timestamp: 2026-05-02T11:05:00+08:00
 
 ## Goal
 
-Use the current A100 experiments as pre-research for a later large-scale robot setting, not as a target benchmark on a small toy dataset.
+Use the current A100 experiments as pre-research for later large-scale multimodal understanding, not as a target benchmark on a small toy dataset.
 
 Short-term objective:
 - turn the current pipeline into a reliable probe for image-to-text understanding mechanisms;
-- identify which knobs should transfer to larger robot data and multi-GPU training;
+- identify which knobs should transfer to larger multimodal data and multi-GPU training;
 - keep smoke tests cheap, but stop optimizing for toy benchmark leaderboard numbers.
 
 Long-term objective:
-- support scalable multimodal robot experiments where visual observations, language/state descriptions, and action-relevant semantics share one training/evaluation path;
+- support scalable multimodal understanding experiments where visual observations, language/state descriptions, and task-relevant semantics share one training/evaluation path;
 - prepare the code and logging discipline needed before moving to hundreds or thousands of GPUs.
 
 ## What The MNIST Runs Mean
@@ -36,8 +36,8 @@ These are not the final research result. They are evidence for mechanism and fai
 The current bottleneck is not overfitting small datasets. The bottleneck is whether the method remains useful when:
 
 - labels become longer and less canonical;
-- observations are robot frames or embodied state, not clean MNIST digits;
-- semantics require spatial, temporal, and action-relevant grounding;
+- observations are richer visual inputs, not clean MNIST digits;
+- semantics require spatial, temporal, and task-relevant grounding;
 - training moves from one A100 to distributed runs with strict reproducibility.
 
 ## What To Stop Doing
@@ -57,8 +57,8 @@ Priority 1: scale-relevant probes.
 - Measure exact match, constrained label accuracy, token accuracy, calibration, and class distribution skew.
 
 Priority 2: data/interface readiness.
-- Define a tokenized dataset contract for robot-like examples: image tokens, text/state tokens, optional action/task metadata, episode/time index.
-- Add a minimal adapter so later robot datasets can enter the same train/eval loop without rewriting the model.
+- Define a tokenized dataset contract for large multimodal examples: image tokens, text/state tokens, optional task metadata, and optional sequence/time index.
+- Add a minimal adapter so later large datasets can enter the same train/eval loop without rewriting the model.
 
 Priority 3: distributed readiness.
 - Add run metadata that records git SHA, config hash, dataset artifact namespace, checkpoint namespace, GPU type, elapsed time, and offline/cache flags.
@@ -76,8 +76,8 @@ Priority 4: failure-mode diagnostics.
 - Keep tokenizer/data/checkpoint caches under `/fangxueji/Projects/PG/uniindex`.
 - Use GitHub commits as the source of truth for code/config changes.
 - Use toy data only as a smoke test and mechanism probe.
-- Promote only findings that plausibly transfer to longer text, robot frames, temporal data, or distributed training.
+- Promote only findings that plausibly transfer to longer text, richer visual inputs, temporal data, or distributed training.
 
 ## Current Action
 
-Stop optimizing toy exact match. Next implementation should add a robot-style structured-text probe and dataset contract, then run it on A100 as a scalable proxy.
+Stop optimizing toy exact match. Next implementation should add a structured-text understanding probe and dataset contract, then run it on A100 as a scalable proxy.

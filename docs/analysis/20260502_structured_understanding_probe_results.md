@@ -1,4 +1,4 @@
-# Structured Robot Probe Results
+# Structured Understanding Probe Results
 
 Timestamp: `2026-05-02T13:32:31+0800`
 
@@ -6,11 +6,11 @@ Remote target: A100 on SSH port `30186`
 
 ## Goal
 
-Use the current image-to-text path as pre-research for robot-scale multimodal understanding. MNIST remains only a cheap proxy for fast mechanism tests; the target is to learn which design choices survive before moving to larger robot data and bigger clusters.
+Use the current image-to-text path as pre-research for large-scale multimodal understanding. MNIST remains only a cheap proxy for fast mechanism tests; the target is to learn which design choices survive before moving to richer data and bigger clusters.
 
 ## Completed Run
 
-Config: `configs/flm_robot_probe_structured_i2t_30k_gpu80.yaml`
+Config: `configs/flm_understanding_structured_i2t_30k_gpu80.yaml`
 
 Checkpoint commit: `b459618`
 
@@ -59,7 +59,7 @@ Constrained full-string scoring gives `0.4618`, much better than exact generatio
 
 ## Lesson
 
-For robot-scale pre-research, do not treat free-form generated text exact match as the only success metric. Track:
+For scalable understanding pre-research, do not treat free-form generated text exact match as the only success metric. Track:
 
 - token accuracy,
 - constrained candidate accuracy,
@@ -83,3 +83,27 @@ Expected readout:
 
 - If compact schema improves exact and field accuracy sharply, the main bottleneck is output serialization.
 - If compact schema still fails similarly, the bottleneck is deeper image-to-state grounding or training dynamics.
+
+## Compact Schema Result
+
+Config: `configs/flm_understanding_compact_schema_i2t_30k_gpu80.yaml`
+
+Evaluation timestamp: `2026-05-02T13:59:00+08:00`
+
+Metrics on 5k test samples:
+
+- `exact_match`: `0.5168`
+- `token_accuracy`: `0.9265764705882353`
+- `constrained_label_accuracy`: `0.703`
+- `parseable_rate`: `1.0`
+
+Field accuracy:
+
+- `c`: `0.7244`
+- `l`: `0.7556`
+- `p`: `0.8094`
+- `q`: `0.659`
+
+Readout:
+
+Compact schema improved exact match from `0.0526` to `0.5168`, token accuracy from `0.8434` to `0.9266`, and constrained label accuracy from `0.4618` to `0.703`. This strongly suggests the previous long structured target was dominated by brittle character-level serialization, not a complete failure of image-to-text understanding.
