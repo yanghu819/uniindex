@@ -74,7 +74,7 @@ train:
   image_to_text_text_time_power: 4.0
 
 sampling:
-  steps: 32
+  steps: 256
   temperature: 0.7
   image_time_power: 1.0
   text_time_power: 0.25

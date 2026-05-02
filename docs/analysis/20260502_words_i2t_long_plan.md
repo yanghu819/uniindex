@@ -39,7 +39,7 @@ Changes:
 - explicit word targets;
 - stage1 `1200` steps;
 - stage2 `8000` image-to-text steps;
-- eval sampling `32` steps;
+- eval sampling `256` steps;
 - temperature `0.7`.
 
 Readout:
