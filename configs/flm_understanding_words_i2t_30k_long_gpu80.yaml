@@ -65,7 +65,7 @@ train:
   save_every: 500
   joint_weight: 0.5
   text_weight: 1.0
-  text_sequence_weight: 2.0
+  text_sequence_weight: 0.0
   stage2_joint_repeats: 0
   stage2_text_to_image_repeats: 0
   stage2_image_to_text_repeats: 1

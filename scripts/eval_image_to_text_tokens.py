@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from uniindex.config import load_config
 from uniindex.data import build_loader, split_path
-from uniindex.eval import _load_stage2, _sample_unified_with_logits, constrained_text_label_values
+from uniindex.eval import _load_stage2, _sample_unified_with_logits
 from uniindex.runtime import resolve_device, set_seed
 from uniindex.schedule import build_schedule_tables
 from uniindex.text import decode_text_tokens, metadata_from_state, text_scoring_mask
@@ -49,7 +49,6 @@ def main() -> int:
     exact = 0
     token_correct = 0
     token_total = 0
-    constrained_correct = 0
     total = 0
     generated_text_counter: Counter[str] = Counter()
     started = time.time()
@@ -57,9 +56,8 @@ def main() -> int:
     for batch in tqdm(loader, desc="i2t-token-eval"):
         image_tokens = batch["image_tokens"].to(device)
         text_tokens = batch["text_tokens"].to(device)
-        labels = batch["label"].to(device)
 
-        sampled_tokens, final_logits = _sample_unified_with_logits(
+        sampled_tokens, _ = _sample_unified_with_logits(
             model=model,
             layout=layout,
             schedule_tables=schedule_tables,
@@ -79,19 +77,12 @@ def main() -> int:
         valid_text = text_scoring_mask(text_tokens, text_metadata, include_bos=False, include_eos=True).to(device)
         token_correct += sampled_text.eq(text_tokens).logical_and(valid_text).sum().item()
         token_total += valid_text.sum().item()
-        constrained_values = constrained_text_label_values(
-            final_logits[:, layout.text_slice],
-            text_metadata,
-            codebook_size=layout.codebook_size,
-        )
-        constrained_correct += (constrained_values == labels).sum().item()
-        total += labels.numel()
+        total += text_tokens.shape[0]
         generated_text_counter.update(pred_strings)
 
     metrics = {
         "image_to_text_exact_match": exact / max(total, 1),
         "image_to_text_token_accuracy": token_correct / max(token_total, 1),
-        "image_to_text_label_accuracy_constrained": constrained_correct / max(total, 1),
         "total": total,
         "elapsed_sec": round(time.time() - started, 3),
         "sampling_steps": sampling_steps,
