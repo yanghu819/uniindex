@@ -22,6 +22,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate image-to-text on tokenized data only.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--sampling-steps", type=int, default=None)
+    parser.add_argument("--temperature", type=float, default=None)
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -59,8 +61,8 @@ def main() -> int:
             model=model,
             layout=layout,
             schedule_tables=schedule_tables,
-            temperature=config.sampling.temperature,
-            steps=config.sampling.steps,
+            temperature=temperature,
+            steps=sampling_steps,
             image_time_power=config.sampling.image_time_power,
             text_time_power=config.sampling.text_time_power,
             image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
@@ -90,6 +92,8 @@ def main() -> int:
         "image_to_text_label_accuracy_constrained": constrained_correct / max(total, 1),
         "total": total,
         "elapsed_sec": round(time.time() - started, 3),
+        "sampling_steps": sampling_steps,
+        "temperature": temperature,
         "generated_text_top20": generated_text_counter.most_common(20),
     }
     payload = json.dumps(metrics, indent=2, ensure_ascii=False)
@@ -101,3 +105,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+    sampling_steps = args.sampling_steps or config.sampling.steps
+    temperature = args.temperature if args.temperature is not None else config.sampling.temperature
