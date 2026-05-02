@@ -27,6 +27,8 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    sampling_steps = args.sampling_steps or config.sampling.steps
+    temperature = args.temperature if args.temperature is not None else config.sampling.temperature
     set_seed(config.train.seed)
     device = resolve_device(config.train.device, config.train.gpu_index)
 
@@ -105,5 +107,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-    sampling_steps = args.sampling_steps or config.sampling.steps
-    temperature = args.temperature if args.temperature is not None else config.sampling.temperature
