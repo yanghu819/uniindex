@@ -24,6 +24,7 @@ def main() -> int:
     parser.add_argument("--out", default=None)
     parser.add_argument("--sampling-steps", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--max-samples", type=int, default=None)
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -54,8 +55,16 @@ def main() -> int:
     started = time.time()
 
     for batch in tqdm(loader, desc="i2t-token-eval"):
+        if args.max_samples is not None and total >= args.max_samples:
+            break
         image_tokens = batch["image_tokens"].to(device)
         text_tokens = batch["text_tokens"].to(device)
+        if args.max_samples is not None:
+            remaining = args.max_samples - total
+            if remaining <= 0:
+                break
+            image_tokens = image_tokens[:remaining]
+            text_tokens = text_tokens[:remaining]
 
         sampled_tokens, _ = _sample_unified_with_logits(
             model=model,
@@ -87,6 +96,7 @@ def main() -> int:
         "elapsed_sec": round(time.time() - started, 3),
         "sampling_steps": sampling_steps,
         "temperature": temperature,
+        "max_samples": args.max_samples,
         "generated_text_top20": generated_text_counter.most_common(20),
     }
     payload = json.dumps(metrics, indent=2, ensure_ascii=False)
