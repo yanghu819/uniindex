@@ -59,6 +59,7 @@ class ModelConfig:
     n_layers: int
     mlp_ratio: int
     dropout: float
+    position_encoding: str = "learned"
 
 
 @dataclass(frozen=True)
