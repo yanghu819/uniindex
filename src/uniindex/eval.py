@@ -96,11 +96,18 @@ def _sample_unified_with_logits(
     if condition_image_tokens is not None and condition_text_tokens is None and image_to_text_text_time_power is not None:
         effective_text_time_power = image_to_text_text_time_power
 
-    dt = 1.0 / max(steps, 1)
     for step in range(steps):
         progress = torch.full((batch,), step / max(steps, 1), device=device)
+        next_progress = torch.full((batch,), (step + 1) / max(steps, 1), device=device)
         t_pos = apply_schedule(
             progress=progress,
+            modality_ids=modality_ids,
+            schedule_tables=schedule_tables,
+            image_time_power=image_time_power,
+            text_time_power=effective_text_time_power,
+        )
+        next_t_pos = apply_schedule(
+            progress=next_progress,
             modality_ids=modality_ids,
             schedule_tables=schedule_tables,
             image_time_power=image_time_power,
@@ -112,11 +119,17 @@ def _sample_unified_with_logits(
             condition_image=condition_image_tokens is not None,
             condition_text=condition_text_tokens is not None,
         )
+        next_t_pos = condition_clean_timesteps(
+            next_t_pos,
+            layout.image_seq_len,
+            condition_image=condition_image_tokens is not None,
+            condition_text=condition_text_tokens is not None,
+        )
         logits = model(z_t, t_pos, modality_ids)
         logits = mask_logits(logits, layout=layout)
         probs = torch.softmax(logits / max(temperature, 1e-4), dim=-1)
         v_t = (probs - z_t) / (1.0 - t_pos).unsqueeze(-1).clamp_min(1e-4)
-        z_t = z_t + dt * v_t
+        z_t = z_t + (next_t_pos - t_pos).unsqueeze(-1).clamp_min(0.0) * v_t
         if condition_image_tokens is not None:
             z_t[:, layout.image_slice] = build_flm_clean_state(condition_image_tokens.to(device), layout.vocab_size)
         if text_targets is not None:
