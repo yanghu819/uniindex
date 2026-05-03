@@ -4,6 +4,7 @@ import argparse
 import json
 import time
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -25,9 +26,22 @@ def main() -> int:
     parser.add_argument("--sampling-steps", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--image-to-text-text-time-power", type=float, default=None)
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.image_to_text_text_time_power is not None:
+        config = replace(
+            config,
+            train=replace(
+                config.train,
+                image_to_text_text_time_power=args.image_to_text_text_time_power,
+            ),
+            sampling=replace(
+                config.sampling,
+                image_to_text_text_time_power=args.image_to_text_text_time_power,
+            ),
+        )
     sampling_steps = args.sampling_steps or config.sampling.steps
     temperature = args.temperature if args.temperature is not None else config.sampling.temperature
     set_seed(config.train.seed)
