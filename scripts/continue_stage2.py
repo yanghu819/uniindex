@@ -40,6 +40,11 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.train_image_to_text_text_time_power is not None and args.checkpoint_config is None:
+        raise ValueError(
+            "--train-image-to-text-text-time-power changes the output checkpoint identity; "
+            "pass --checkpoint-config explicitly or use a checked-in config for the target experiment."
+        )
     if args.train_image_to_text_text_time_power is not None:
         config = replace(
             config,
