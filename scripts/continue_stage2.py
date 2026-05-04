@@ -34,6 +34,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint-config")
+    parser.add_argument("--checkpoint-path")
     parser.add_argument("--train-image-to-text-text-time-power", type=float)
     parser.add_argument("--extra-steps", type=int, required=True)
     parser.add_argument("--out-dir", default="logs/experiments/stage2_continue")
@@ -57,6 +58,8 @@ def main() -> int:
                 image_to_text_text_time_power=args.train_image_to_text_text_time_power,
             ),
         )
+    if args.checkpoint_path is not None and args.checkpoint_config is not None:
+        raise ValueError("pass only one of --checkpoint-path or --checkpoint-config")
     checkpoint_config = load_config(args.checkpoint_config or args.config)
     ensure_project_dirs(config)
     set_seed(config.train.seed + 1009)
@@ -108,7 +111,11 @@ def main() -> int:
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
-    stage2_path = latest_checkpoint_path(checkpoint_config, "stage2")
+    stage2_path = (
+        Path(args.checkpoint_path)
+        if args.checkpoint_path is not None
+        else latest_checkpoint_path(checkpoint_config, "stage2")
+    )
     if not stage2_path.exists():
         raise FileNotFoundError(f"missing stage2 checkpoint at {stage2_path}")
     payload = torch.load(stage2_path, map_location=device)
@@ -126,6 +133,7 @@ def main() -> int:
         {
             "config": args.config,
             "checkpoint_config": args.checkpoint_config or args.config,
+            "checkpoint_path": args.checkpoint_path,
             "stage2_checkpoint": str(stage2_path),
             "start_step": start_step,
             "extra_steps": args.extra_steps,
