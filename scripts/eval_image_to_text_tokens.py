@@ -22,6 +22,7 @@ from uniindex.text import decode_text_tokens, metadata_from_state, text_scoring_
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate image-to-text on tokenized data only.")
     parser.add_argument("--config", required=True)
+    parser.add_argument("--checkpoint-config")
     parser.add_argument("--out", default=None)
     parser.add_argument("--sampling-steps", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
@@ -30,6 +31,12 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    checkpoint_config = load_config(args.checkpoint_config or args.config)
+    if args.image_to_text_text_time_power is not None and args.checkpoint_config is None:
+        raise ValueError(
+            "--image-to-text-text-time-power changes checkpoint identity; "
+            "pass --checkpoint-config explicitly or use a checked-in config for the evaluated checkpoint."
+        )
     if args.image_to_text_text_time_power is not None:
         config = replace(
             config,
@@ -47,7 +54,7 @@ def main() -> int:
     set_seed(config.train.seed)
     device = resolve_device(config.train.device, config.train.gpu_index)
 
-    model, tokenizer_state, layout = _load_stage2(config, device)
+    model, tokenizer_state, layout = _load_stage2(config, device, checkpoint_config=checkpoint_config)
     text_metadata = metadata_from_state(tokenizer_state)
     schedule_tables = build_schedule_tables(
         config,

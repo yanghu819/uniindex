@@ -27,8 +27,12 @@ from .tokenizer import build_tokenizer
 from .train import latest_checkpoint_path
 
 
-def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
-    stage2_path = latest_checkpoint_path(config, "stage2")
+def _load_stage2(
+    config: ProjectConfig,
+    device: torch.device,
+    checkpoint_config: ProjectConfig | None = None,
+) -> tuple[UnifiedDenoiser, dict, TaskLayout]:
+    stage2_path = latest_checkpoint_path(checkpoint_config or config, "stage2")
     if not stage2_path.exists():
         raise FileNotFoundError(f"missing stage2 checkpoint at {stage2_path}")
     payload = torch.load(stage2_path, map_location=device)
