@@ -23,6 +23,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate image-to-text on tokenized data only.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint-config")
+    parser.add_argument("--checkpoint-path")
     parser.add_argument("--out", default=None)
     parser.add_argument("--sampling-steps", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
@@ -54,7 +55,13 @@ def main() -> int:
     set_seed(config.train.seed)
     device = resolve_device(config.train.device, config.train.gpu_index)
 
-    model, tokenizer_state, layout = _load_stage2(config, device, checkpoint_config=checkpoint_config)
+    checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
+    model, tokenizer_state, layout = _load_stage2(
+        config,
+        device,
+        checkpoint_config=checkpoint_config,
+        checkpoint_path=checkpoint_path,
+    )
     text_metadata = metadata_from_state(tokenizer_state)
     schedule_tables = build_schedule_tables(
         config,
