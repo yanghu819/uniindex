@@ -50,8 +50,8 @@ class QwenImageToText(nn.Module):
         answer_mask: torch.Tensor,
     ) -> torch.Tensor:
         token_embed = self.token_embedding()
-        image_embeds = self.image_norm(self.image_embed(image_tokens))
         prompt_embeds = token_embed(prompt_ids)
+        image_embeds = self.image_norm(self.image_embed(image_tokens)).to(prompt_embeds.dtype)
         answer_inputs = answer_ids.masked_fill(~answer_mask, 0)
         answer_embeds = token_embed(answer_inputs)
         inputs_embeds = torch.cat([image_embeds, prompt_embeds, answer_embeds], dim=1)
@@ -127,8 +127,8 @@ def evaluate(
         losses.append(float(model(image_tokens, prompt, answer_ids, answer_mask).item()))
 
         scores = []
-        image_embeds = model.image_norm(model.image_embed(image_tokens))
         prompt_embeds = token_embed(prompt)
+        image_embeds = model.image_norm(model.image_embed(image_tokens)).to(prompt_embeds.dtype)
         for candidate in answer_rows:
             candidate = candidate.unsqueeze(0).expand(image_tokens.shape[0], -1)
             candidate_embeds = token_embed(candidate)
