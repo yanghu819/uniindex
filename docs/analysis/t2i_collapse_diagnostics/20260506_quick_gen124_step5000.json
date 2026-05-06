@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-05-06T18:21:14+08:00",
+  "status": "completed",
+  "purpose": "quick root-cause read on text-to-image collapse, not a training experiment",
+  "code_sha": "2c7b78f",
+  "config": "configs/flm_words_joint_long_rope_p8_gen124_gpu80.yaml",
+  "checkpoint": "/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt",
+  "remote_output": "/fangxueji/Projects/PG/uniindex/worktrees/diag_t2i_collapse_gen124_step5000/logs/diagnostics/t2i_collapse_gen124_step5000_quick",
+  "local_output": "logs/diagnostics/t2i_collapse_gen124_step5000_quick",
+  "runtime_sec": 311.548,
+  "modes": ["correct", "empty"],
+  "seeds_per_label": 8,
+  "sampling_steps": 256,
+  "temperature": 0.7,
+  "record_steps": [0, 1, 2, 4, 8, 16, 32, 64, 128, 192, 256],
+  "collapse_labels": [9, 1, 7],
+  "collapse_phase": {
+    "correct": "late_drift",
+    "empty": "late_drift"
+  },
+  "collapse_mass_917": {
+    "correct": {
+      "step_0": 0.1875,
+      "step_128": 0.4875,
+      "step_256": 0.775,
+      "final_argmax_257": 1.0
+    },
+    "empty": {
+      "step_0": 0.1875,
+      "step_128": 0.3625,
+      "step_256": 0.8875,
+      "final_argmax_257": 1.0
+    }
+  },
+  "final_nearest_label_distribution": {
+    "correct": {"1": 0.2625, "7": 0.275, "9": 0.4625},
+    "empty": {"1": 0.8625, "7": 0.0125, "9": 0.125}
+  },
+  "final_match": {
+    "correct_prompt_match": 0.3,
+    "correct_target_match": 0.3,
+    "empty_target_match": 0.0875,
+    "correct_vs_empty_distribution_l1": 1.2
+  },
+  "entropy": {
+    "correct_step_1": 7.918307,
+    "correct_step_2": 3.836213,
+    "correct_final": 3.433593,
+    "empty_step_1": 7.900037,
+    "empty_step_2": 3.964612,
+    "empty_final": 3.580635
+  },
+  "top_token_concentration": {
+    "correct_step_2": 0.446841,
+    "correct_final": 0.477958,
+    "empty_step_2": 0.43456,
+    "empty_final": 0.465691
+  },
+  "conclusion": "Collapse is not initialization collapse. Local image-token confidence appears early, but semantic nearest-label collapse develops late and becomes extreme at final argmax. Prompt conditioning exists but is too weak to prevent late attractor collapse.",
+  "next_step": "Do not launch training yet. Compare step-256 pre-final image-token state against final logits argmax or alternative readout diagnostics to isolate finalization versus late denoise."
+}
