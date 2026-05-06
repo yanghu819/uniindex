@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -127,6 +128,7 @@ def main() -> int:
     modality_ids = layout.position_modalities().to(device)
     valid_token_mask = layout.position_valid_token_mask().to(device)
     train_log = out_dir / "train_continue.jsonl"
+    last_checkpoint = None
 
     append_jsonl(
         out_dir / "metadata.jsonl",
@@ -193,9 +195,20 @@ def main() -> int:
             )
 
         if offset % config.train.save_every == 0 or offset == args.extra_steps:
-            _save_checkpoint(config, "stage2", model, optimizer, step, tokenizer_state, run_context)
+            last_checkpoint = _save_checkpoint(config, "stage2", model, optimizer, step, tokenizer_state, run_context)
 
     run_context.update_status("ok")
+    print(
+        json.dumps(
+            {
+                "run_dir": str(run_context.run_dir),
+                "log_dir": str(out_dir),
+                "last_checkpoint": str(last_checkpoint) if last_checkpoint is not None else None,
+                "final_step": start_step + args.extra_steps,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
