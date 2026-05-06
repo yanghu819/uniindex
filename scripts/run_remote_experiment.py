@@ -353,6 +353,7 @@ class RemoteExperimentRunner:
         raise RunnerError(f"AIStation did not reach Running before timeout, last status={status}", stage="aistation_open")
 
     def expect_command(self, remote_command: str) -> list[str]:
+        remote_shell_command = f"bash -lc {q(remote_command)}"
         ssh_args = [
             "ssh",
             "-p",
@@ -366,9 +367,7 @@ class RemoteExperimentRunner:
             "-o",
             "ServerAliveCountMax=4",
             self.ssh_target,
-            "bash",
-            "-lc",
-            remote_command,
+            remote_shell_command,
         ]
         if not self.password:
             return ssh_args
