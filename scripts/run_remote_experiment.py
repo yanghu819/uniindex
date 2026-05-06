@@ -178,6 +178,20 @@ def extract_last_json_object(text: str) -> dict[str, Any]:
     return best
 
 
+def extract_json_document(text: str) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and not text[index + end :].strip():
+            return value
+    return extract_last_json_object(text)
+
+
 class Heartbeat:
     def __init__(self, runner: "RemoteExperimentRunner", phase: str, command: str, interval: int) -> None:
         self.runner = runner
@@ -694,7 +708,7 @@ exit [lindex $result 3]
     def remote_read_json(self, remote_path: str, *, stage: str) -> dict[str, Any]:
         result = self.run_remote_capture(f"cat {q(remote_path)}", stage=stage, timeout=60)
         try:
-            return json.loads(result.output)
+            return extract_json_document(result.output)
         except json.JSONDecodeError as exc:
             raise RunnerError(f"failed to parse remote JSON {remote_path}: {exc}", stage=stage) from exc
 
