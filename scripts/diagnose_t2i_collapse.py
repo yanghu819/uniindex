@@ -50,6 +50,17 @@ class ModeBatch:
     prompt_texts: list[str]
 
 
+def _slice_mode_batch(mode_batch: ModeBatch, start: int, end: int) -> ModeBatch:
+    return ModeBatch(
+        mode=mode_batch.mode,
+        condition_text=mode_batch.condition_text[start:end],
+        target_labels=mode_batch.target_labels[start:end],
+        prompt_labels=mode_batch.prompt_labels[start:end],
+        sample_seeds=mode_batch.sample_seeds[start:end],
+        prompt_texts=mode_batch.prompt_texts[start:end],
+    )
+
+
 def _round_float(value: float | None, digits: int = 6) -> float | None:
     if value is None:
         return None
@@ -328,7 +339,12 @@ def _step_summary(
         "total": total,
         "nearest_label_counts": nearest_counts,
         "nearest_label_fraction": {key: _round_float(value / total) for key, value in nearest_counts.items()},
+        "target_match_count": int(nearest_labels.eq(mode_batch.target_labels).sum().item()),
         "target_match_fraction": _round_float(float(nearest_labels.eq(mode_batch.target_labels).float().mean().item())),
+        "prompt_match_count": None
+        if prompt_total == 0
+        else int(nearest_labels[prompt_mask].eq(mode_batch.prompt_labels[prompt_mask]).sum().item()),
+        "prompt_match_total": prompt_total,
         "prompt_match_fraction": None
         if prompt_total == 0
         else _round_float(float(nearest_labels[prompt_mask].eq(mode_batch.prompt_labels[prompt_mask]).float().mean().item())),
@@ -554,6 +570,151 @@ def _write_curves(out_dir: Path, per_step: list[dict[str, Any]], label_values: l
     )
     paths["top_prob"] = str(top_prob_path)
     return paths
+
+
+def _sum_counts(items: list[dict[str, int]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        counter.update({str(key): int(value) for key, value in (item or {}).items()})
+    return {key: int(counter[key]) for key in sorted(counter, key=lambda value: int(value) if value.lstrip("-").isdigit() else value)}
+
+
+def _weighted_mean(records: list[dict[str, Any]], key: str, weight_key: str = "total") -> float | None:
+    weighted_sum = 0.0
+    weight_total = 0
+    for record in records:
+        value = record.get(key)
+        weight = int(record.get(weight_key, 0) or 0)
+        if value is None or weight <= 0:
+            continue
+        weighted_sum += float(value) * weight
+        weight_total += weight
+    if weight_total == 0:
+        return None
+    return _round_float(weighted_sum / weight_total)
+
+
+def _weighted_array(records: list[dict[str, Any]], key: str, weight_key: str = "total") -> list[float] | None:
+    arrays = []
+    weights = []
+    for record in records:
+        value = record.get(key)
+        weight = int(record.get(weight_key, 0) or 0)
+        if value is None or weight <= 0:
+            continue
+        arrays.append([None if item is None else float(item) for item in value])
+        weights.append(weight)
+    if not arrays:
+        return None
+    length = len(arrays[0])
+    output = []
+    for index in range(length):
+        weighted_sum = 0.0
+        weight_total = 0
+        for array, weight in zip(arrays, weights):
+            value = array[index]
+            if value is None:
+                continue
+            weighted_sum += value * weight
+            weight_total += weight
+        output.append(None if weight_total == 0 else _round_float(weighted_sum / weight_total))
+    return output
+
+
+def _aggregate_group(records: list[dict[str, Any]], label_values: list[int]) -> dict[str, Any]:
+    total = sum(int(record.get("total", 0) or 0) for record in records)
+    if total <= 0:
+        return {}
+    counts = _sum_counts([record.get("nearest_label_counts", {}) for record in records])
+    target_match_count = sum(int(record.get("target_match_count", 0) or 0) for record in records)
+    item: dict[str, Any] = {
+        "total": total,
+        "nearest_label_counts": counts,
+        "nearest_label_fraction": {key: _round_float(value / total) for key, value in counts.items()},
+        "target_match_count": target_match_count,
+        "target_match_fraction": _round_float(target_match_count / total),
+        "mean_nearest_distance": _weighted_mean(records, "mean_nearest_distance"),
+        "state_argmax_consensus_mean": _weighted_mean(records, "state_argmax_consensus_mean"),
+    }
+    for key in ("entropy_mean", "top_prob_mean", "argmax_consensus_mean"):
+        value = _weighted_mean(records, key)
+        if value is not None:
+            item[key] = value
+    return item
+
+
+def _aggregate_prob_stats(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    stats_records = [record.get("model_prob_stats") for record in records if record.get("model_prob_stats") is not None]
+    if not stats_records:
+        return None
+    wrapped = []
+    for record, stats in zip([record for record in records if record.get("model_prob_stats") is not None], stats_records):
+        wrapped.append({**stats, "total": int(record.get("total", 0) or 0)})
+    output: dict[str, Any] = {}
+    for key in ("entropy_mean", "top_prob_mean", "argmax_consensus_mean"):
+        output[key] = _weighted_mean(wrapped, key)
+    for key in ("entropy_by_position", "top_prob_by_position", "argmax_consensus_by_position"):
+        output[key] = _weighted_array(wrapped, key)
+    for key in ("argmax_consensus_token_by_position",):
+        for stats in reversed(stats_records):
+            if stats.get(key) is not None:
+                output[key] = stats[key]
+                break
+    return output
+
+
+def _aggregate_step_records(chunk_records: list[dict[str, Any]], label_values: list[int]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, int, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in chunk_records:
+        grouped[(str(record["mode"]), int(record["step"]), str(record["phase"]))].append(record)
+
+    aggregated = []
+    for (mode, step, phase), records in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1], item[0][2])):
+        total = sum(int(record.get("total", 0) or 0) for record in records)
+        counts = _sum_counts([record.get("nearest_label_counts", {}) for record in records])
+        prompt_match_total = sum(int(record.get("prompt_match_total", 0) or 0) for record in records)
+        prompt_match_count = sum(int(record.get("prompt_match_count", 0) or 0) for record in records if record.get("prompt_match_count") is not None)
+        target_match_count = sum(int(record.get("target_match_count", 0) or 0) for record in records)
+        item: dict[str, Any] = {
+            "mode": mode,
+            "step": step,
+            "phase": phase,
+            "progress": records[0].get("progress"),
+            "total": total,
+            "nearest_label_counts": counts,
+            "nearest_label_fraction": {key: _round_float(value / total) for key, value in counts.items()},
+            "target_match_count": target_match_count,
+            "target_match_fraction": _round_float(target_match_count / total),
+            "prompt_match_count": None if prompt_match_total == 0 else prompt_match_count,
+            "prompt_match_total": prompt_match_total,
+            "prompt_match_fraction": None if prompt_match_total == 0 else _round_float(prompt_match_count / prompt_match_total),
+            "mean_nearest_distance": _weighted_mean(records, "mean_nearest_distance"),
+            "label_names": records[0].get("label_names", {}),
+            "state_argmax_consensus_mean": _weighted_mean(records, "state_argmax_consensus_mean"),
+            "state_argmax_consensus_by_position": _weighted_array(records, "state_argmax_consensus_by_position"),
+            "state_argmax_consensus_token_by_position": records[-1].get("state_argmax_consensus_token_by_position"),
+            "model_prob_stats": _aggregate_prob_stats(records),
+            "per_target_label": {},
+            "per_prompt_label": {},
+        }
+        for label in label_values:
+            key = str(label)
+            label_records = [
+                record.get("per_target_label", {}).get(key)
+                for record in records
+                if record.get("per_target_label", {}).get(key) is not None
+            ]
+            if label_records:
+                item["per_target_label"][key] = _aggregate_group(label_records, label_values)
+            prompt_records = [
+                record.get("per_prompt_label", {}).get(key)
+                for record in records
+                if record.get("per_prompt_label", {}).get(key) is not None
+            ]
+            if prompt_records:
+                item["per_prompt_label"][key] = _aggregate_group(prompt_records, label_values)
+        aggregated.append(item)
+    return aggregated
 
 
 def _write_decoded_grids(
@@ -998,6 +1159,7 @@ def main() -> int:
     parser.add_argument("--record-every", type=int, default=1)
     parser.add_argument("--bank-samples", type=int, default=5000)
     parser.add_argument("--bank-chunk-size", type=int, default=512)
+    parser.add_argument("--sample-batch-size", type=int, default=64)
     parser.add_argument("--grid-cols", type=int, default=8)
     parser.add_argument("--cell-size", type=int, default=72)
     parser.add_argument("--decode-batch-size", type=int, default=32)
@@ -1010,6 +1172,8 @@ def main() -> int:
         raise ValueError("--record-every must be >= 1")
     if args.seeds_per_label < 32:
         raise ValueError("--seeds-per-label must be at least 32 for this diagnostic")
+    if args.sample_batch_size < 1:
+        raise ValueError("--sample-batch-size must be >= 1")
 
     config = load_config(args.config)
     checkpoint_config = load_config(args.checkpoint_config or args.config)
@@ -1059,26 +1223,76 @@ def main() -> int:
 
     for mode in args.modes:
         mode_batch = _make_mode_batch(text_metadata, mode, args.seeds_per_label, base_seed, device)
-        mode_records, final_tokens, nearest_indices, nearest_distances, nearest_labels = _run_mode(
-            mode_batch=mode_batch,
-            model=model,
-            layout=layout,
-            schedule_tables=schedule_tables,
-            image_time_power=config.sampling.image_time_power,
-            text_time_power=config.sampling.text_time_power,
-            image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
-            temperature=temperature,
-            steps=steps,
-            record_every=args.record_every,
-            bank_tokens=bank_tokens,
-            bank_labels=bank_labels,
-            bank_chunk_size=args.bank_chunk_size,
-            label_values=label_values,
-            label_to_string=label_to_string,
-            position_collapse=position_collapse,
-            top_prob_threshold=args.top_prob_collapse_threshold,
-            consensus_threshold=args.consensus_collapse_threshold,
+        print(
+            json.dumps(
+                {
+                    "event": "mode_start",
+                    "mode": mode,
+                    "samples": int(mode_batch.condition_text.shape[0]),
+                    "sample_batch_size": args.sample_batch_size,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
         )
+        chunk_records: list[dict[str, Any]] = []
+        final_token_chunks = []
+        nearest_index_chunks = []
+        nearest_distance_chunks = []
+        nearest_label_chunks = []
+        for start in range(0, mode_batch.condition_text.shape[0], args.sample_batch_size):
+            end = min(start + args.sample_batch_size, mode_batch.condition_text.shape[0])
+            mode_chunk = _slice_mode_batch(mode_batch, start, end)
+            (
+                chunk_mode_records,
+                chunk_final_tokens,
+                chunk_nearest_indices,
+                chunk_nearest_distances,
+                chunk_nearest_labels,
+            ) = _run_mode(
+                mode_batch=mode_chunk,
+                model=model,
+                layout=layout,
+                schedule_tables=schedule_tables,
+                image_time_power=config.sampling.image_time_power,
+                text_time_power=config.sampling.text_time_power,
+                image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+                temperature=temperature,
+                steps=steps,
+                record_every=args.record_every,
+                bank_tokens=bank_tokens,
+                bank_labels=bank_labels,
+                bank_chunk_size=args.bank_chunk_size,
+                label_values=label_values,
+                label_to_string=label_to_string,
+                position_collapse=position_collapse,
+                top_prob_threshold=args.top_prob_collapse_threshold,
+                consensus_threshold=args.consensus_collapse_threshold,
+            )
+            chunk_records.extend(chunk_mode_records)
+            final_token_chunks.append(chunk_final_tokens)
+            nearest_index_chunks.append(chunk_nearest_indices)
+            nearest_distance_chunks.append(chunk_nearest_distances)
+            nearest_label_chunks.append(chunk_nearest_labels)
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+            print(
+                json.dumps(
+                    {
+                        "event": "chunk_done",
+                        "mode": mode,
+                        "start": start,
+                        "end": end,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        mode_records = _aggregate_step_records(chunk_records, label_values)
+        final_tokens = torch.cat(final_token_chunks, dim=0)
+        nearest_indices = torch.cat(nearest_index_chunks, dim=0)
+        nearest_distances = torch.cat(nearest_distance_chunks, dim=0)
+        nearest_labels = torch.cat(nearest_label_chunks, dim=0)
         per_step.extend(mode_records)
         final_mode_metrics[mode] = mode_records[-1]
         all_outcomes.extend(
@@ -1137,6 +1351,7 @@ def main() -> int:
         "seeds_per_label": args.seeds_per_label,
         "modes": args.modes,
         "record_every": args.record_every,
+        "sample_batch_size": args.sample_batch_size,
         "bank_samples": bank_count,
         "label_values": label_values,
         "label_to_string": {str(key): value for key, value in label_to_string.items()},
