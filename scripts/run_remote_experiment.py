@@ -376,7 +376,7 @@ class RemoteExperimentRunner:
 set timeout -1
 set password $env(A100_SSH_PASSWORD)
 log_user 1
-eval spawn $argv
+spawn {*}$argv
 expect {
     -re "(?i)are you sure you want to continue connecting" {
         send "yes\\r"
