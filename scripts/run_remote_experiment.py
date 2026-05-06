@@ -51,6 +51,7 @@ class Experiment:
     code_sha: str
     config: str
     base_checkpoint: str
+    shared_artifacts_dir: str | None
     train_steps: int
     reset_optimizer: bool
     override_lr: float | None
@@ -127,6 +128,7 @@ def load_experiment(path: Path, *, code_sha_override: str | None) -> Experiment:
         code_sha=code_sha,
         config=str(raw["config"]),
         base_checkpoint=str(raw["base_checkpoint"]),
+        shared_artifacts_dir=None if raw.get("shared_artifacts_dir") is None else str(raw["shared_artifacts_dir"]),
         train_steps=train_steps,
         reset_optimizer=bool(raw.get("reset_optimizer", False)),
         override_lr=None if raw.get("override_lr") is None else float(raw["override_lr"]),
@@ -153,6 +155,10 @@ def reject_forbidden_command(command: str) -> None:
     for forbidden in FORBIDDEN_COMMAND_SUBSTRINGS:
         if forbidden in padded:
             raise RunnerError(f"forbidden command fragment detected: {forbidden.strip()}")
+
+
+def remote_script(lines: list[str]) -> str:
+    return "\n".join(["set -euo pipefail", *lines])
 
 
 def extract_last_json_object(text: str) -> dict[str, Any]:
@@ -279,6 +285,7 @@ class RemoteExperimentRunner:
             "ssh_port": self.args.ssh_port,
             "remote_root": self.remote_root,
             "worktree": self.remote_worktree(experiment),
+            "shared_artifacts_dir": experiment.shared_artifacts_dir or f"{self.remote_root}/artifacts",
         }
 
     def remote_worktree(self, experiment: Experiment) -> str:
@@ -509,14 +516,16 @@ exit [lindex $result 3]
     def remote_checkout(self, experiment: Experiment) -> None:
         worktree = self.remote_worktree(experiment)
         fetch_ref = self.args.remote_ref or current_branch()
-        script = "\n".join(
+        shared_artifacts_dir = experiment.shared_artifacts_dir or f"{self.remote_root}/artifacts"
+        script = remote_script(
             [
                 f"cd {q(self.remote_root)}",
                 f"GIT_TERMINAL_PROMPT=0 timeout {int(self.args.git_fetch_timeout_sec)} git fetch origin {q(fetch_ref)}",
                 f"if [ -e {q(worktree)} ]; then echo {q('worktree already exists: ' + worktree)}; exit 7; fi",
                 f"git worktree add --detach {q(worktree)} {q(experiment.code_sha)}",
                 f"cd {q(worktree)}",
-                "if [ ! -e artifacts ]; then ln -s ../../artifacts artifacts; fi",
+                f"test -d {q(shared_artifacts_dir)}",
+                f"if [ ! -e artifacts ]; then ln -s {q(shared_artifacts_dir)} artifacts; fi",
                 "if [ ! -e .cache ] && [ -d ../../.cache ]; then ln -s ../../.cache .cache; fi",
                 f'test "$(git rev-parse HEAD)" = {q(experiment.code_sha)}',
             ]
@@ -525,7 +534,7 @@ exit [lindex $result 3]
 
     def remote_preflight(self, experiment: Experiment) -> None:
         checkpoint = self.remote_project_path(experiment.base_checkpoint)
-        script = "\n".join(
+        script = remote_script(
             [
                 f"cd {q(self.remote_worktree(experiment))}",
                 "test -x ../../.venv/bin/python",
@@ -562,7 +571,7 @@ exit [lindex $result 3]
             command.append("--reset-optimizer")
         if experiment.override_lr is not None:
             command.extend(["--override-lr", str(experiment.override_lr)])
-        script = "\n".join(
+        script = remote_script(
             [
                 f"cd {q(self.remote_worktree(experiment))}",
                 f"mkdir -p {q(out_dir)}",
@@ -600,7 +609,7 @@ exit [lindex $result 3]
             "--max-samples",
             str(experiment.eval["max_samples"]),
         ]
-        script = "\n".join(
+        script = remote_script(
             [
                 f"cd {q(self.remote_worktree(experiment))}",
                 f"mkdir -p {q(self.remote_log_rel(experiment, 'eval'))}",
@@ -634,7 +643,7 @@ exit [lindex $result 3]
             "--bank-samples",
             str(experiment.eval["bank_samples"]),
         ]
-        script = "\n".join(
+        script = remote_script(
             [
                 f"cd {q(self.remote_worktree(experiment))}",
                 f"mkdir -p {q(self.remote_log_rel(experiment, 'eval'))}",
@@ -668,7 +677,7 @@ exit [lindex $result 3]
             "--bank-samples",
             str(experiment.eval["bank_samples"]),
         ]
-        script = "\n".join(
+        script = remote_script(
             [
                 f"cd {q(self.remote_worktree(experiment))}",
                 f"mkdir -p {q(out_rel)}",

@@ -2,8 +2,9 @@ experiment_id: ac_gen124_lowlr_reset_500
 hypothesis: "step 6500 generation regression may come from high LR or inherited optimizer momentum pushing the model toward a 9 attractor; low LR plus reset optimizer should preserve gen124 prompt-following while reducing drift."
 code_sha: AUTO
 config: configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml
-base_checkpoint: runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
+base_checkpoint: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
 base_checkpoint_note: gen124 step 5000, current best generation baseline
+shared_artifacts_dir: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/artifacts
 train_steps: 500
 reset_optimizer: true
 override_lr: 0.0001

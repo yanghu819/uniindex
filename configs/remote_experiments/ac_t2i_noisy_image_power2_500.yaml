@@ -2,8 +2,9 @@ experiment_id: ac_t2i_noisy_image_power2_500
 hypothesis: "Collapse may start in early denoising from high-noise image states; increasing the t2i image time-power during training may make text conditioning matter earlier."
 code_sha: AUTO
 config: configs/flm_words_joint_long_rope_p8_ac_t2i_noisy_image_power2_gpu80.yaml
-base_checkpoint: runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
+base_checkpoint: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
 base_checkpoint_note: gen124 step 5000, current best generation baseline
+shared_artifacts_dir: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/artifacts
 train_steps: 500
 reset_optimizer: true
 override_lr: 0.0001
