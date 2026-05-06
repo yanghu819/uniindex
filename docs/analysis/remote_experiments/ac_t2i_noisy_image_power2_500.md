@@ -7,7 +7,7 @@
 - Config: `configs/flm_words_joint_long_rope_p8_ac_t2i_noisy_image_power2_gpu80.yaml`
 - Base checkpoint: `/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt`
 - Train steps: `500`
-- Reset optimizer: `True`
+- Reset optimizer: `true`
 - Override LR: `0.0001`
 
 ## Hypothesis
@@ -19,18 +19,19 @@ Collapse may start in early denoising from high-noise image states; increasing t
 - i2t 512 exact: `0.84765625`
 - i2t 512 token acc: `0.8837485172004745`
 - t2i 512 token-NN acc: `0.314453125`
-- t2i nearest-label distribution: `{9: 201, 1: 156, 7: 145, 4: 10}`
+- t2i nearest-label distribution: `{"1":156,"4":10,"7":145,"9":201}`
 - decoded 160 token-NN acc: `0.2750000059604645`
-- decoded nearest-label distribution: `{9: 73, 7: 44, 1: 40, 4: 3}`
+- decoded nearest-label distribution: `{"1":40,"4":3,"7":44,"9":73}`
 - decoded grid: `/fangxueji/Projects/PG/uniindex/worktrees/ac_t2i_noisy_image_power2_500/logs/remote_experiments/ac_t2i_noisy_image_power2_500/decoded/decoded_grid_steps256_temp0.70.png`
 
 ## Acceptance
 
-- i2t exact pass: `True`
-- visual review: `pending`
-- final acceptance: `pending_visual_review`
-- note: Token metrics are only a first pass; final pass requires manual decoded-grid visual note.
+- i2t exact pass: `true`
+- visual review: `done`
+- final acceptance: `fail`
+- visual note: Decoded grid keeps one and seven readable, but zero/two/three/four/five/six/eight/nine are still pulled toward 9/7/1/4. The image-time power change did not produce prompt-following generation.
+- note: i2t stays above the protection threshold, but decoded images and nearest-label distributions still show strong text-to-image collapse. This run should not be scaled as-is.
 
 ## Next Step Basis
 
-If decoded images follow prompts better and nearest labels spread beyond 9/1/7, run a small power sweep next.
+Do not run a power sweep yet; first add diagnostics for per-step t2i trajectories and image-token marginal drift under the same unified FLM sampler.

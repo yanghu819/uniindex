@@ -12,21 +12,21 @@
   "finished_at": "2026-05-06T08:36:12Z",
   "status": "ok",
   "acceptance": {
-    "visual_review": "pending",
-    "visual_note": "pending manual decoded-grid review",
+    "visual_review": "done",
+    "visual_note": "Decoded grid does not improve over gen124 low-LR reset. It is slightly more seven-heavy, with most prompts still visually and by NN falling into 9/7/1 plus a tiny 4 tail.",
     "i2t_exact_min": 0.8,
     "i2t_exact_pass": true,
     "t2i_nearest_label_distribution": {
-      "9": 201,
-      "7": 166,
       "1": 135,
-      "4": 10
+      "4": 10,
+      "7": 166,
+      "9": 201
     },
     "decoded_nearest_label_distribution": {
-      "9": 67,
-      "7": 50,
       "1": 39,
-      "4": 4
+      "4": 4,
+      "7": 50,
+      "9": 67
     },
     "t2i_collapse_labels": [
       9,
@@ -38,10 +38,10 @@
     "decoded_collapse_mass": 156,
     "decoded_collapse_fraction": 0.975,
     "decoded_grid_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_joint_anchor_242_lowlr_500/logs/remote_experiments/ac_joint_anchor_242_lowlr_500/decoded/decoded_grid_steps256_temp0.70.png",
-    "final_acceptance": "pending_visual_review",
-    "acceptance_note": "Token metrics are only a first pass; final pass requires manual decoded-grid visual note."
+    "final_acceptance": "fail",
+    "acceptance_note": "i2t stays above the protection threshold, but decoded images and nearest-label distributions still show strong text-to-image collapse. This run should not be scaled as-is."
   },
-  "next_step_basis": "If nearest-label mass spreads beyond 9/1/7 while i2t remains >=80%, this becomes the first scale-up candidate.",
+  "next_step_basis": "Do not scale the 2:4:2 joint-anchor direction; more joint mass alone did not change the attractor structure.",
   "remote": {
     "aistation_name": "A100",
     "ssh_host": "172.16.78.10",

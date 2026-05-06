@@ -12,21 +12,21 @@
   "finished_at": "2026-05-06T08:56:16Z",
   "status": "ok",
   "acceptance": {
-    "visual_review": "pending",
-    "visual_note": "pending manual decoded-grid review",
+    "visual_review": "done",
+    "visual_note": "Decoded grid keeps one and seven readable, but zero/two/three/four/five/six/eight/nine are still pulled toward 9/7/1/4. The image-time power change did not produce prompt-following generation.",
     "i2t_exact_min": 0.8,
     "i2t_exact_pass": true,
     "t2i_nearest_label_distribution": {
-      "9": 201,
       "1": 156,
+      "4": 10,
       "7": 145,
-      "4": 10
+      "9": 201
     },
     "decoded_nearest_label_distribution": {
-      "9": 73,
-      "7": 44,
       "1": 40,
-      "4": 3
+      "4": 3,
+      "7": 44,
+      "9": 73
     },
     "t2i_collapse_labels": [
       9,
@@ -38,10 +38,10 @@
     "decoded_collapse_mass": 157,
     "decoded_collapse_fraction": 0.98125,
     "decoded_grid_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_t2i_noisy_image_power2_500/logs/remote_experiments/ac_t2i_noisy_image_power2_500/decoded/decoded_grid_steps256_temp0.70.png",
-    "final_acceptance": "pending_visual_review",
-    "acceptance_note": "Token metrics are only a first pass; final pass requires manual decoded-grid visual note."
+    "final_acceptance": "fail",
+    "acceptance_note": "i2t stays above the protection threshold, but decoded images and nearest-label distributions still show strong text-to-image collapse. This run should not be scaled as-is."
   },
-  "next_step_basis": "If decoded images follow prompts better and nearest labels spread beyond 9/1/7, run a small power sweep next.",
+  "next_step_basis": "Do not run a power sweep yet; first add diagnostics for per-step t2i trajectories and image-token marginal drift under the same unified FLM sampler.",
   "remote": {
     "aistation_name": "A100",
     "ssh_host": "172.16.78.10",

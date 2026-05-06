@@ -12,20 +12,20 @@
   "finished_at": "2026-05-06T08:15:25Z",
   "status": "ok",
   "acceptance": {
-    "visual_review": "pending",
-    "visual_note": "pending manual decoded-grid review",
+    "visual_review": "done",
+    "visual_note": "Decoded grid shows partial prompt following for easy labels such as one/seven and some four/five/six/eight shapes, but zero/two/three/five/six/eight still frequently drift to 9/1/7. Decoded NN distribution is entirely 9/1/7, so generation collapse is not solved.",
     "i2t_exact_min": 0.8,
     "i2t_exact_pass": true,
     "t2i_nearest_label_distribution": {
-      "9": 223,
       "1": 150,
+      "4": 10,
       "7": 129,
-      "4": 10
+      "9": 223
     },
     "decoded_nearest_label_distribution": {
-      "9": 76,
       "1": 44,
-      "7": 40
+      "7": 40,
+      "9": 76
     },
     "t2i_collapse_labels": [
       9,
@@ -35,12 +35,12 @@
     "t2i_collapse_mass": 502,
     "t2i_collapse_fraction": 0.98046875,
     "decoded_collapse_mass": 160,
-    "decoded_collapse_fraction": 1.0,
+    "decoded_collapse_fraction": 1,
     "decoded_grid_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/decoded_grid_steps256_temp0.70.png",
-    "final_acceptance": "pending_visual_review",
-    "acceptance_note": "Token metrics are only a first pass; final pass requires manual decoded-grid visual note."
+    "final_acceptance": "fail",
+    "acceptance_note": "i2t stays above the protection threshold, but decoded images and nearest-label distributions still show strong text-to-image collapse. This run should not be scaled as-is."
   },
-  "next_step_basis": "If i2t stays >=80% and t2i does not regress, extend to 1000 steps before broader scale-up.",
+  "next_step_basis": "Do not extend this setting yet; first diagnose where t2i denoising collapses and why the image-token vector field prefers 9/1/7 attractors.",
   "remote": {
     "aistation_name": "A100",
     "ssh_host": "172.16.78.10",

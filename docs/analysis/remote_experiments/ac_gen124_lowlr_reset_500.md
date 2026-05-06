@@ -7,7 +7,7 @@
 - Config: `configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml`
 - Base checkpoint: `/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt`
 - Train steps: `500`
-- Reset optimizer: `True`
+- Reset optimizer: `true`
 - Override LR: `0.0001`
 
 ## Hypothesis
@@ -19,18 +19,19 @@ step 6500 generation regression may come from high LR or inherited optimizer mom
 - i2t 512 exact: `0.8515625`
 - i2t 512 token acc: `0.8888888888888888`
 - t2i 512 token-NN acc: `0.314453125`
-- t2i nearest-label distribution: `{9: 223, 1: 150, 7: 129, 4: 10}`
+- t2i nearest-label distribution: `{"1":150,"4":10,"7":129,"9":223}`
 - decoded 160 token-NN acc: `0.29375001788139343`
-- decoded nearest-label distribution: `{9: 76, 1: 44, 7: 40}`
+- decoded nearest-label distribution: `{"1":44,"7":40,"9":76}`
 - decoded grid: `/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/decoded_grid_steps256_temp0.70.png`
 
 ## Acceptance
 
-- i2t exact pass: `True`
-- visual review: `pending`
-- final acceptance: `pending_visual_review`
-- note: Token metrics are only a first pass; final pass requires manual decoded-grid visual note.
+- i2t exact pass: `true`
+- visual review: `done`
+- final acceptance: `fail`
+- visual note: Decoded grid shows partial prompt following for easy labels such as one/seven and some four/five/six/eight shapes, but zero/two/three/five/six/eight still frequently drift to 9/1/7. Decoded NN distribution is entirely 9/1/7, so generation collapse is not solved.
+- note: i2t stays above the protection threshold, but decoded images and nearest-label distributions still show strong text-to-image collapse. This run should not be scaled as-is.
 
 ## Next Step Basis
 
-If i2t stays >=80% and t2i does not regress, extend to 1000 steps before broader scale-up.
+Do not extend this setting yet; first diagnose where t2i denoising collapses and why the image-token vector field prefers 9/1/7 attractors.
