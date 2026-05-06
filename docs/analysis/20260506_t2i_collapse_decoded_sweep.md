@@ -75,11 +75,35 @@ Do not scale `gen144`.
 
 Use `gen124` as the current best candidate if scaling one branch now. It is not accepted as solved, because i2t exact drops from about 83% to 80.5% and token-NN collapse still exists, but it is the clearest positive direction among the 500-step probes.
 
+## Longer training probe
+
+Timestamp:
+
+- Local: 2026-05-06 14:10:31 CST
+- UTC: 2026-05-06 06:10:31 UTC
+
+Because `gen124` was the best balanced 500-step probe, it was extended from step 5000 to step 6500.
+
+Extended checkpoint:
+
+- `runs/20260506T053542Z-stage2-continue/checkpoints/stage2_step006500.pt`
+
+Longer-training results:
+
+| Experiment | Step | i2t exact 512 | t2i token-NN 512 | decoded token-NN 160 | decoded nearest-label counts |
+| --- | ---: | ---: | ---: | ---: | --- |
+| gen124 | 5000 | 0.8047 | 0.3379 | 0.2938 | `9:65, 7:51, 1:44` |
+| gen124 extended | 6500 | 0.8164 | 0.3164 | 0.2938 | `9:105, 7:32, 1:21, 6:2` |
+
+Finding: training longer helped `image -> text` recover from 80.5% to 81.6%, but it did not improve `text -> image`. The 512-sample t2i token-NN score dropped, and the decoded nearest-label distribution became more concentrated on `9`.
+
+Decision: do not blindly scale this training recipe. Step 5000 is still the better generation checkpoint for `gen124`; step 6500 is only better if preserving understanding is the priority.
+
 ## Next recommended experiments
 
-1. Continue `gen124` for a modest extension, for example another 500 to 1500 steps, and evaluate every 500 steps with the same three outputs.
-2. Add a decoded-image classifier metric or OCR-like lightweight judge for generated images. The current nearest-neighbor token metric is too pessimistic for some decoded samples.
-3. Keep the architecture unified. Do not add modality-specific heads unless there is a stronger failure signal than the current token-NN mismatch.
+1. Add a decoded-image classifier metric or OCR-like lightweight judge for generated images. The current nearest-neighbor token metric is too pessimistic for some decoded samples, but it still catches collapse.
+2. Evaluate step 5500 and 6000 only if a finer early-stopping curve is needed. The final 6500 point already shows that longer training alone can over-concentrate generation.
+3. Try a targeted anti-collapse change while keeping the model unified, for example task schedule/curriculum changes rather than modality-specific heads.
 4. Keep NFE 256 and temperature 0.7 for comparison runs. Sampling sweep already showed that spending more NFE alone is not the main fix.
 
 ## Silent fallback audit
@@ -89,4 +113,3 @@ Use `gen124` as the current best candidate if scaling one branch now. It is not 
 - No token heatmap was used as the generation image.
 - No architecture fallback to separate heads was introduced.
 - The only metric fallback retained is token-NN, and the new finding is that it should be paired with true decoded visual inspection or a decoded-image classifier.
-
