@@ -4,16 +4,41 @@
   "config": "configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml",
   "base_checkpoint": "/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt",
   "base_checkpoint_note": "gen124 step 5000, current best generation baseline",
-  "commit_sha": "bfad1b32ef84bea0fc27f8e5292fb4de6f61f5df",
+  "commit_sha": "57781de6437096f2c3857688cef2f46be8e23a9b",
   "train_steps": 500,
   "reset_optimizer": true,
   "override_lr": 0.0001,
-  "started_at": "2026-05-06T07:33:07Z",
-  "finished_at": "2026-05-06T07:44:07Z",
-  "status": "failed",
+  "started_at": "2026-05-06T07:52:50Z",
+  "finished_at": "2026-05-06T08:15:25Z",
+  "status": "ok",
   "acceptance": {
     "visual_review": "pending",
-    "visual_note": "pending manual decoded-grid review"
+    "visual_note": "pending manual decoded-grid review",
+    "i2t_exact_min": 0.8,
+    "i2t_exact_pass": true,
+    "t2i_nearest_label_distribution": {
+      "9": 223,
+      "1": 150,
+      "7": 129,
+      "4": 10
+    },
+    "decoded_nearest_label_distribution": {
+      "9": 76,
+      "1": 44,
+      "7": 40
+    },
+    "t2i_collapse_labels": [
+      9,
+      1,
+      7
+    ],
+    "t2i_collapse_mass": 502,
+    "t2i_collapse_fraction": 0.98046875,
+    "decoded_collapse_mass": 160,
+    "decoded_collapse_fraction": 1.0,
+    "decoded_grid_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/decoded_grid_steps256_temp0.70.png",
+    "final_acceptance": "pending_visual_review",
+    "acceptance_note": "Token metrics are only a first pass; final pass requires manual decoded-grid visual note."
   },
   "next_step_basis": "If i2t stays >=80% and t2i does not regress, extend to 1000 steps before broader scale-up.",
   "remote": {
@@ -25,58 +50,1879 @@
     "shared_artifacts_dir": "/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/artifacts"
   },
   "train": {
-    "run_dir": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/runs/20260506T073005Z-stage2-continue",
+    "run_dir": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/runs/20260506T075030Z-stage2-continue",
     "log_dir": "logs/remote_experiments/ac_gen124_lowlr_reset_500/train",
     "last_checkpoint": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/models/checkpoints/a7b2609a37b4/stage2_latest.pt",
     "final_step": 5500,
     "command": "ssh root@172.16.78.10:30186 -- set -euo pipefail\ncd /fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500\nmkdir -p logs/remote_experiments/ac_gen124_lowlr_reset_500/train\nPYTHONPATH=src HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 HF_HOME=/fangxueji/Projects/PG/uniindex/.cache/huggingface TRANSFORMERS_CACHE=/fangxueji/Projects/PG/uniindex/.cache/huggingface/transformers ../../.venv/bin/python scripts/continue_stage2.py --config configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml --checkpoint-path /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt --extra-steps 500 --out-dir logs/remote_experiments/ac_gen124_lowlr_reset_500/train --reset-optimizer --override-lr 0.0001"
   },
-  "failure": {
-    "stage": "read_i2t",
-    "reason": "failed to parse remote JSON /fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/eval/i2t_512.json: Expecting value: line 1 column 1 (char 0)",
-    "command": null,
-    "exit_code": null,
-    "last_output": [
-      "      55",
-      "    ],",
-      "    [",
-      "      \"five\",",
-      "      54",
-      "    ],",
-      "    [",
-      "      \"three\",",
-      "      53",
-      "    ],",
-      "    [",
-      "      \"nine\",",
-      "      50",
-      "    ],",
-      "    [",
-      "      \"seven\",",
-      "      49",
-      "    ],",
-      "    [",
-      "      \"two\",",
-      "      46",
-      "    ],",
-      "    [",
-      "      \"zero\",",
-      "      42",
-      "    ],",
-      "    [",
-      "      \"six\",",
-      "      35",
-      "    ],",
-      "    [",
-      "      \"sixht\",",
-      "      3",
-      "    ],",
-      "    [",
-      "      \"throe\",",
-      "      1",
-      "    ]",
-      "  ]",
-      "}"
-    ]
+  "i2t_eval": {
+    "image_to_text_exact_match": 0.8515625,
+    "image_to_text_token_accuracy": 0.8888888888888888,
+    "total": 512,
+    "elapsed_sec": 286.828,
+    "sampling_steps": 256,
+    "temperature": 0.7,
+    "max_samples": 512,
+    "generated_text_top20": [
+      [
+        "one",
+        69
+      ],
+      [
+        "four",
+        55
+      ],
+      [
+        "eight",
+        55
+      ],
+      [
+        "five",
+        54
+      ],
+      [
+        "three",
+        53
+      ],
+      [
+        "nine",
+        50
+      ],
+      [
+        "seven",
+        49
+      ],
+      [
+        "two",
+        46
+      ],
+      [
+        "zero",
+        42
+      ],
+      [
+        "six",
+        35
+      ],
+      [
+        "sixht",
+        3
+      ],
+      [
+        "throe",
+        1
+      ]
+    ],
+    "remote_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/eval/i2t_512.json"
+  },
+  "t2i_eval": {
+    "text_to_image_token_nn_accuracy": 0.314453125,
+    "target_image_token_accuracy": 0.34095001220703125,
+    "mean_nearest_token_distance": 128.775390625,
+    "total": 512,
+    "bank_samples": 5000,
+    "elapsed_sec": 248.994,
+    "sampling_steps": 256,
+    "temperature": 0.7,
+    "max_samples": 512,
+    "generated_label_top20": [
+      [
+        9,
+        223
+      ],
+      [
+        1,
+        150
+      ],
+      [
+        7,
+        129
+      ],
+      [
+        4,
+        10
+      ]
+    ],
+    "remote_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/eval/t2i_512.json"
+  },
+  "decoded_eval": {
+    "config": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml",
+    "checkpoint": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/models/checkpoints/a7b2609a37b4/stage2_latest.pt",
+    "out_dir": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded",
+    "elapsed_sec": 91.174,
+    "bank_samples": 5000,
+    "combos": [
+      {
+        "steps": 256,
+        "temperature": 0.7,
+        "seed": 256115,
+        "total": 160,
+        "repeats_per_label": 16,
+        "token_nn_accuracy": 0.29375001788139343,
+        "mean_nearest_distance": 130.2937469482422,
+        "unique_nearest_indices": 26,
+        "unique_nearest_labels": 3,
+        "nearest_label_counts": [
+          [
+            9,
+            76
+          ],
+          [
+            1,
+            44
+          ],
+          [
+            7,
+            40
+          ]
+        ],
+        "per_condition_nearest_label_counts": {
+          "0": [
+            [
+              9,
+              12
+            ],
+            [
+              7,
+              4
+            ]
+          ],
+          "1": [
+            [
+              1,
+              16
+            ]
+          ],
+          "2": [
+            [
+              1,
+              11
+            ],
+            [
+              9,
+              5
+            ]
+          ],
+          "3": [
+            [
+              7,
+              10
+            ],
+            [
+              9,
+              6
+            ]
+          ],
+          "4": [
+            [
+              7,
+              8
+            ],
+            [
+              9,
+              8
+            ]
+          ],
+          "5": [
+            [
+              9,
+              15
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "6": [
+            [
+              1,
+              14
+            ],
+            [
+              9,
+              2
+            ]
+          ],
+          "7": [
+            [
+              7,
+              16
+            ]
+          ],
+          "8": [
+            [
+              9,
+              13
+            ],
+            [
+              1,
+              2
+            ],
+            [
+              7,
+              1
+            ]
+          ],
+          "9": [
+            [
+              9,
+              15
+            ],
+            [
+              7,
+              1
+            ]
+          ]
+        },
+        "unique_generated_token_sequences": 160,
+        "per_condition_diversity": {
+          "0": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 39.5333366394043
+          },
+          "1": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 19.433334350585938
+          },
+          "2": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 31.900001525878906
+          },
+          "3": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 29.625001907348633
+          },
+          "4": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 29.4666690826416
+          },
+          "5": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 35.4083366394043
+          },
+          "6": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 30.791667938232422
+          },
+          "7": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 24.45833396911621
+          },
+          "8": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 34.17500305175781
+          },
+          "9": {
+            "unique_generated_token_sequences": 16,
+            "mean_pairwise_hamming": 28.10000228881836
+          }
+        },
+        "decoded_grid": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/decoded_grid_steps256_temp0.70.png",
+        "records": [
+          {
+            "sample_index": 0,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 149,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 1,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 154,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 2,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 2250,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 155,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 3,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 560,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 151,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 4,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 153,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 5,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 154,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 6,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 2243,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 157,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 7,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 4644,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 158,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 8,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 154,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 9,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 2243,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 157,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 10,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3874,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 155,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 11,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3842,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 158,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 12,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 152,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 13,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 1455,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 157,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 14,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 560,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 157,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 15,
+            "condition_label": 0,
+            "condition_text": "zero",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 155,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 16,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 17,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 2786,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 98,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 18,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 99,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 19,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 2786,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 20,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 2786,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 99,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 21,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 99,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 22,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 99,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 23,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 24,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 101,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 25,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 26,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 101,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 27,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 28,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 101,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 29,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 30,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 176,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 31,
+            "condition_label": 1,
+            "condition_text": "one",
+            "nearest_index": 2786,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 100,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 32,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 4864,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 33,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 34,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 40,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 141,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 35,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 4864,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 36,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 4864,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 141,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 37,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2175,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 139,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 38,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 141,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 39,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2245,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 142,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 40,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 140,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 41,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 40,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 139,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 42,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 141,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 43,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 142,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 44,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 2175,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 140,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 45,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 4864,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 142,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 46,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 4864,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 139,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 47,
+            "condition_label": 2,
+            "condition_text": "two",
+            "nearest_index": 40,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 139,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 48,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 49,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 50,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 51,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 52,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 53,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 54,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 55,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 56,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 57,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 58,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 59,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 60,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 61,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 1122,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 62,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 63,
+            "condition_label": 3,
+            "condition_text": "three",
+            "nearest_index": 4053,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 64,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 65,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 66,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 67,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 68,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 69,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 70,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 128,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 71,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 72,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 73,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 3387,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 74,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 75,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 76,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 77,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 78,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 79,
+            "condition_label": 4,
+            "condition_text": "four",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 128,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 80,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 128,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 81,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 82,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 83,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 84,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 127,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 85,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 86,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 87,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 88,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 89,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 90,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 91,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 92,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 93,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 94,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 95,
+            "condition_label": 5,
+            "condition_text": "five",
+            "nearest_index": 2245,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 96,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 97,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 98,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 99,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 100,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 101,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 102,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 103,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 104,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 129,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 105,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 131,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 106,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 107,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 130,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 108,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 134,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 109,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 110,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 132,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 111,
+            "condition_label": 6,
+            "condition_text": "six",
+            "nearest_index": 809,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 133,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 112,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 113,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 114,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 123,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 115,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 116,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 117,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 121,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 118,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 119,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 120,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 121,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 121,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 119,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 122,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 123,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 121,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 124,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 125,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 126,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 127,
+            "condition_label": 7,
+            "condition_text": "seven",
+            "nearest_index": 1566,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 123,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 128,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 136,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 129,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 136,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 130,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 1439,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 131,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 1904,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 132,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 136,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 133,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 134,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2245,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 136,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 135,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 140,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 136,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 137,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 137,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2245,
+            "nearest_label": 1,
+            "nearest_text": "one",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 138,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 139,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 3213,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 140,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 138,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 141,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 137,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 142,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 143,
+            "condition_label": 8,
+            "condition_text": "eight",
+            "nearest_index": 1904,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 135,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 144,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1904,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 124,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 145,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1904,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 127,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 146,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 123,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 147,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 125,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 148,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 125,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 149,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 689,
+            "nearest_label": 7,
+            "nearest_text": "seven",
+            "nearest_distance": 128,
+            "nearest_label_correct": false
+          },
+          {
+            "sample_index": 150,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1851,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 127,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 151,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1439,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 127,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 152,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 2089,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 124,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 153,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 2923,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 124,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 154,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1439,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 126,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 155,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 2089,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 125,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 156,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 4316,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 124,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 157,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 2089,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 122,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 158,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1904,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 124,
+            "nearest_label_correct": true
+          },
+          {
+            "sample_index": 159,
+            "condition_label": 9,
+            "condition_text": "nine",
+            "nearest_index": 1851,
+            "nearest_label": 9,
+            "nearest_text": "nine",
+            "nearest_distance": 123,
+            "nearest_label_correct": true
+          }
+        ]
+      }
+    ],
+    "remote_path": "/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/summary.json"
   }
 }

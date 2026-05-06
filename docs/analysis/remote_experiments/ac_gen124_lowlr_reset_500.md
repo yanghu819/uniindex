@@ -1,9 +1,9 @@
 # ac_gen124_lowlr_reset_500
 
-- Status: `failed`
-- Started: `2026-05-06T07:33:07Z`
-- Finished: `2026-05-06T07:44:07Z`
-- Commit SHA: `bfad1b32ef84bea0fc27f8e5292fb4de6f61f5df`
+- Status: `ok`
+- Started: `2026-05-06T07:52:50Z`
+- Finished: `2026-05-06T08:15:25Z`
+- Commit SHA: `57781de6437096f2c3857688cef2f46be8e23a9b`
 - Config: `configs/flm_words_joint_long_rope_p8_ac_gen124_lowlr_reset_gpu80.yaml`
 - Base checkpoint: `/fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt`
 - Train steps: `500`
@@ -16,73 +16,21 @@ step 6500 generation regression may come from high LR or inherited optimizer mom
 
 ## Metrics
 
-- i2t 512 exact: `n/a`
-- i2t 512 token acc: `n/a`
-- t2i 512 token-NN acc: `n/a`
-- t2i nearest-label distribution: `n/a`
-- decoded 160 token-NN acc: `n/a`
-- decoded nearest-label distribution: `n/a`
-- decoded grid: `n/a`
+- i2t 512 exact: `0.8515625`
+- i2t 512 token acc: `0.8888888888888888`
+- t2i 512 token-NN acc: `0.314453125`
+- t2i nearest-label distribution: `{9: 223, 1: 150, 7: 129, 4: 10}`
+- decoded 160 token-NN acc: `0.29375001788139343`
+- decoded nearest-label distribution: `{9: 76, 1: 44, 7: 40}`
+- decoded grid: `/fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/decoded/decoded_grid_steps256_temp0.70.png`
 
 ## Acceptance
 
-- i2t exact pass: `n/a`
+- i2t exact pass: `True`
 - visual review: `pending`
-- final acceptance: `n/a`
-- note: n/a
+- final acceptance: `pending_visual_review`
+- note: Token metrics are only a first pass; final pass requires manual decoded-grid visual note.
 
 ## Next Step Basis
 
 If i2t stays >=80% and t2i does not regress, extend to 1000 steps before broader scale-up.
-
-## Failure
-
-- Stage: `read_i2t`
-- Exit code: `None`
-- Reason: failed to parse remote JSON /fangxueji/Projects/PG/uniindex/worktrees/ac_gen124_lowlr_reset_500/logs/remote_experiments/ac_gen124_lowlr_reset_500/eval/i2t_512.json: Expecting value: line 1 column 1 (char 0)
-- Command: `None`
-
-Recent output:
-
-```text
-      55
-    ],
-    [
-      "five",
-      54
-    ],
-    [
-      "three",
-      53
-    ],
-    [
-      "nine",
-      50
-    ],
-    [
-      "seven",
-      49
-    ],
-    [
-      "two",
-      46
-    ],
-    [
-      "zero",
-      42
-    ],
-    [
-      "six",
-      35
-    ],
-    [
-      "sixht",
-      3
-    ],
-    [
-      "throe",
-      1
-    ]
-  ]
-}
-```
