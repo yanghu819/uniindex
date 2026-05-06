@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -66,20 +67,116 @@ class DummyVisionTokenizer(BaseVisionTokenizer):
         )
 
 
+def _model_cache_name(model_name: str) -> str:
+    return "models--" + model_name.replace("/", "--")
+
+
+def _cache_search_dirs(cache_dir: Path, repo_root: Path) -> list[Path]:
+    roots = [cache_dir]
+    if repo_root.parent.name == "worktrees":
+        roots.append(repo_root.parent.parent / ".cache")
+
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+    for root in roots:
+        for candidate in (
+            root,
+            root / "hub",
+            root / "transformers",
+            root / "huggingface" / "hub",
+            root / "huggingface" / "transformers",
+            root / "hf" / "hub",
+            root / "hf" / "transformers",
+        ):
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(resolved)
+    return candidates
+
+
+def _has_model_files(snapshot_dir: Path) -> bool:
+    if not (snapshot_dir / "config.json").exists():
+        return False
+    return any(
+        (snapshot_dir / filename).exists()
+        for filename in (
+            "model.safetensors",
+            "pytorch_model.bin",
+            "model.bin",
+        )
+    )
+
+
+def _snapshot_from_cache(cache_root: Path, model_name: str) -> Path | None:
+    snapshots_dir = cache_root / _model_cache_name(model_name) / "snapshots"
+    if not snapshots_dir.exists():
+        return None
+
+    ref_path = cache_root / _model_cache_name(model_name) / "refs" / "main"
+    if ref_path.exists():
+        snapshot = snapshots_dir / ref_path.read_text(encoding="utf-8").strip()
+        if _has_model_files(snapshot):
+            return snapshot
+
+    snapshots = [path for path in snapshots_dir.iterdir() if path.is_dir() and _has_model_files(path)]
+    if not snapshots:
+        return None
+    return max(snapshots, key=lambda path: path.stat().st_mtime)
+
+
+def _resolve_local_model_source(model_name: str, cache_dir: Path, repo_root: Path) -> tuple[str, str | None]:
+    model_path = Path(model_name).expanduser()
+    if model_path.exists():
+        return str(model_path.resolve()), None
+
+    searched: list[str] = []
+    for cache_root in _cache_search_dirs(cache_dir, repo_root):
+        searched.append(str(cache_root))
+        snapshot = _snapshot_from_cache(cache_root, model_name)
+        if snapshot is not None:
+            return str(snapshot), str(cache_root)
+
+    message = (
+        f"missing local vision tokenizer model '{model_name}'. "
+        "Expected a complete local snapshot under one of: "
+        + ", ".join(searched)
+        + ". Put the decoder files under the repo-local cache; this loader does not download models."
+    )
+    raise FileNotFoundError(message)
+
+
 class EmuVisionTokenizer(BaseVisionTokenizer):
-    def __init__(self, model_name: str, trust_remote_code: bool, image_size: int, device: torch.device, dtype: torch.dtype) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        trust_remote_code: bool,
+        image_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        cache_dir: Path,
+        repo_root: Path,
+    ) -> None:
         from transformers import AutoModel
 
+        model_source, resolved_cache = _resolve_local_model_source(model_name, cache_dir, repo_root)
+        load_kwargs = {
+            "trust_remote_code": trust_remote_code,
+            "local_files_only": True,
+        }
+        if resolved_cache is not None:
+            load_kwargs["cache_dir"] = resolved_cache
         self.model = AutoModel.from_pretrained(
-            model_name,
-            trust_remote_code=trust_remote_code,
-            local_files_only=True,
+            model_source,
+            **load_kwargs,
         )
         self.model.eval()
         self.model.to(device=device, dtype=dtype)
         self.device = device
         self.dtype = dtype
         self.image_size = image_size
+        self.model_source = model_source
         self._codebook = self.model.quantize.embedding.weight.detach().float().cpu()
 
     def _preprocess_pil_batch(self, images: Sequence[Image.Image]) -> torch.Tensor:
@@ -149,4 +246,6 @@ def build_tokenizer(config: ProjectConfig, device: torch.device | None = None) -
         image_size=tok_cfg.image_size,
         device=resolved_device,
         dtype=torch_dtype_from_name(tok_cfg.dtype),
+        cache_dir=config.paths.cache_dir,
+        repo_root=config.repo_root,
     )

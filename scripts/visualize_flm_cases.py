@@ -16,6 +16,7 @@ from uniindex.config import load_config
 from uniindex.data import TokenizedImageDataset, split_path
 from uniindex.datasets import build_image_dataset
 from uniindex.eval import (
+    _decode_image_tokens,
     _load_stage2,
     _sample_unified_with_logits,
     constrained_text_label_values,
@@ -24,6 +25,7 @@ from uniindex.eval import (
 from uniindex.runtime import resolve_device, set_seed
 from uniindex.schedule import build_schedule_tables
 from uniindex.text import decode_text_tokens, metadata_from_state, text_scoring_mask
+from uniindex.tokenizer import build_tokenizer
 
 
 def _prepare_pil(image: Image.Image, image_size: int) -> Image.Image:
@@ -57,6 +59,19 @@ def _resize_square(image: Image.Image, size: int) -> Image.Image:
     if image.size != (size, size):
         return image.resize((size, size), Image.NEAREST)
     return image
+
+
+def _tensor_to_pil(image: torch.Tensor, size: int) -> Image.Image:
+    image = image.detach().cpu().clamp(0.0, 1.0)
+    if image.dim() != 3:
+        raise ValueError(f"expected decoded image with shape (channels, height, width), got {tuple(image.shape)}")
+    array = (image.permute(1, 2, 0).numpy() * 255.0).round().astype(np.uint8)
+    if array.shape[-1] == 1:
+        array = np.repeat(array, repeats=3, axis=-1)
+    pil = Image.fromarray(array, mode="RGB")
+    if pil.size != (size, size):
+        pil = pil.resize((size, size), Image.BILINEAR)
+    return pil
 
 
 def _token_grid_image(
@@ -135,7 +150,7 @@ def _compose_generation_cell(target: Image.Image, generated_tokens: Image.Image,
     canvas.paste(target, (0, 0))
     canvas.paste(generated_tokens, (tile + gap, 0))
     canvas.paste(nearest, ((tile + gap) * 2, 0))
-    return _add_strip(canvas, ["target", "genTok", "nn"])
+    return _add_strip(canvas, ["target", "gen", "nn"])
 
 
 def _balanced_indices(labels: torch.Tensor, label_values: tuple[int, ...], total: int) -> list[int]:
@@ -247,8 +262,8 @@ def _write_html(out_dir: Path, summary: dict) -> Path:
                 "<h2>Image to text understanding</h2>",
                 "<img src=\"understanding_cases.png\" alt=\"understanding cases\">",
                 "<h2>Text to image generation</h2>",
-                "<p>Generation uses token-space visualization: target raw image, generated image-token grid, nearest real test image.</p>",
-                "<img src=\"generation_cases_token_nn.png\" alt=\"generation token nearest-neighbor cases\">",
+                "<p>Generation panel: target raw image, decoded generated image, nearest real test image in token space.</p>",
+                "<img src=\"generation_cases_decoded_nn.png\" alt=\"generation decoded nearest-neighbor cases\">",
                 "<h2>Case metrics</h2>",
                 f"<pre>{html.escape(metrics)}</pre>",
                 "</body>",
@@ -404,6 +419,8 @@ def main() -> int:
     )
     nearest_labels = bank_labels.index_select(0, nearest_indices)
     target_token_acc = generated.eq(generation_image_tokens).float().mean(dim=1)
+    tokenizer = build_tokenizer(config, device=device)
+    decoded_generated = _decode_image_tokens(tokenizer, generated, tokenizer_state, grid_shape, device).cpu()
 
     generation_images: list[Image.Image] = []
     generation_captions: list[str] = []
@@ -421,12 +438,7 @@ def main() -> int:
             image_size=config.tokenizer.image_size,
             display_size=96,
         )
-        generated_image = _token_grid_image(
-            generated[row],
-            grid_shape,
-            codebook_size=layout.codebook_size,
-            size=96,
-        )
+        generated_image = _tensor_to_pil(decoded_generated[row], size=96)
         nearest_image = _raw_or_token_image(
             raw_dataset=raw_dataset,
             index=nearest_index,
@@ -479,7 +491,7 @@ def main() -> int:
         caption_height=62,
     )
     understanding_path = out_dir / "understanding_cases.png"
-    generation_path = out_dir / "generation_cases_token_nn.png"
+    generation_path = out_dir / "generation_cases_decoded_nn.png"
     understanding_grid.save(understanding_path)
     generation_grid.save(generation_path)
 
@@ -508,13 +520,13 @@ def main() -> int:
         "sampling_steps": sampling_steps,
         "temperature": temperature,
         "understanding_cases_png": str(understanding_path),
-        "generation_cases_token_nn_png": str(generation_path),
+        "generation_cases_decoded_nn_png": str(generation_path),
         "metrics": metrics,
         "understanding_cases": understanding_cases,
         "generation_cases": generation_cases,
         "notes": [
-            "generation image is visualized as image-token heatmap because this script intentionally avoids decoder/classifier dependencies",
-            "nearest-neighbor label is a token-space proxy, not a pixel decoder or classifier score",
+            "generation image is decoded with the local vision tokenizer decoder",
+            "nearest-neighbor label is still a token-space proxy, not a classifier score",
         ],
     }
     summary_path = out_dir / "summary.json"
@@ -526,7 +538,7 @@ def main() -> int:
             {
                 "out_dir": str(out_dir),
                 "understanding_cases_png": str(understanding_path),
-                "generation_cases_token_nn_png": str(generation_path),
+                "generation_cases_decoded_nn_png": str(generation_path),
                 "summary_json": str(summary_path),
                 "index_html": str(html_path),
                 "metrics": metrics,
