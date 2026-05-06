@@ -74,6 +74,17 @@ def _counter_dict(values: torch.Tensor) -> dict[str, int]:
     return {str(key): int(counter[key]) for key in sorted(counter)}
 
 
+def _parse_record_steps(raw_steps: list[int] | None, total_steps: int, record_every: int) -> set[int]:
+    if raw_steps:
+        parsed = {int(step) for step in raw_steps}
+        if any(step < 0 or step > total_steps for step in parsed):
+            raise ValueError(f"--record-steps must stay in [0, {total_steps}]")
+        parsed.add(0)
+        parsed.add(total_steps)
+        return parsed
+    return {0, *range(record_every, total_steps + 1, record_every), total_steps}
+
+
 def _safe_label(label: int, label_to_string: dict[int, str]) -> str:
     if label < 0:
         return "none"
@@ -953,6 +964,7 @@ def _run_mode(
     temperature: float,
     steps: int,
     record_every: int,
+    record_steps: set[int],
     bank_tokens: torch.Tensor,
     bank_labels: torch.Tensor,
     bank_chunk_size: int,
@@ -1023,7 +1035,8 @@ def _run_mode(
             )
         return nearest_indices, nearest_distances, nearest_labels
 
-    record(0, "initial_noise_argmax", 0.0, None)
+    if 0 in record_steps:
+        record(0, "initial_noise_argmax", 0.0, None)
     final_probs = None
     for step in range(steps):
         progress = torch.full((batch,), step / max(steps, 1), device=device)
@@ -1050,7 +1063,7 @@ def _run_mode(
         v_t = (probs - z_t) / (1.0 - t_pos).unsqueeze(-1).clamp_min(1e-4)
         z_t = z_t + (next_t_pos - t_pos).unsqueeze(-1).clamp_min(0.0) * v_t
         z_t[:, layout.text_slice] = build_flm_clean_state(text_targets, layout.vocab_size)
-        if (step + 1) % record_every == 0 or (step + 1) == steps:
+        if (step + 1) in record_steps:
             record(step + 1, "after_update", float((step + 1) / max(steps, 1)), probs)
 
     final_t_pos = apply_schedule(
@@ -1157,6 +1170,7 @@ def main() -> int:
     parser.add_argument("--modes", nargs="+", default=["correct", "shuffled", "empty", "random"])
     parser.add_argument("--base-seed", type=int, default=None)
     parser.add_argument("--record-every", type=int, default=1)
+    parser.add_argument("--record-steps", nargs="+", type=int, default=None)
     parser.add_argument("--bank-samples", type=int, default=5000)
     parser.add_argument("--bank-chunk-size", type=int, default=512)
     parser.add_argument("--sample-batch-size", type=int, default=64)
@@ -1170,14 +1184,15 @@ def main() -> int:
 
     if args.record_every < 1:
         raise ValueError("--record-every must be >= 1")
-    if args.seeds_per_label < 32:
-        raise ValueError("--seeds-per-label must be at least 32 for this diagnostic")
+    if args.seeds_per_label < 1:
+        raise ValueError("--seeds-per-label must be >= 1")
     if args.sample_batch_size < 1:
         raise ValueError("--sample-batch-size must be >= 1")
 
     config = load_config(args.config)
     checkpoint_config = load_config(args.checkpoint_config or args.config)
     steps = int(args.steps or config.sampling.steps)
+    record_steps = _parse_record_steps(args.record_steps, steps, args.record_every)
     temperature = float(args.temperature if args.temperature is not None else config.sampling.temperature)
     base_seed = int(args.base_seed if args.base_seed is not None else config.train.seed)
     set_seed(base_seed)
@@ -1260,6 +1275,7 @@ def main() -> int:
                 temperature=temperature,
                 steps=steps,
                 record_every=args.record_every,
+                record_steps=record_steps,
                 bank_tokens=bank_tokens,
                 bank_labels=bank_labels,
                 bank_chunk_size=args.bank_chunk_size,
@@ -1351,6 +1367,7 @@ def main() -> int:
         "seeds_per_label": args.seeds_per_label,
         "modes": args.modes,
         "record_every": args.record_every,
+        "record_steps": sorted(record_steps),
         "sample_batch_size": args.sample_batch_size,
         "bank_samples": bank_count,
         "label_values": label_values,
