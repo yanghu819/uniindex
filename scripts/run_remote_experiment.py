@@ -516,6 +516,8 @@ exit [lindex $result 3]
                 f"if [ -e {q(worktree)} ]; then echo {q('worktree already exists: ' + worktree)}; exit 7; fi",
                 f"git worktree add --detach {q(worktree)} {q(experiment.code_sha)}",
                 f"cd {q(worktree)}",
+                "if [ ! -e artifacts ]; then ln -s ../../artifacts artifacts; fi",
+                "if [ ! -e .cache ] && [ -d ../../.cache ]; then ln -s ../../.cache .cache; fi",
                 f'test "$(git rev-parse HEAD)" = {q(experiment.code_sha)}',
             ]
         )
@@ -529,6 +531,7 @@ exit [lindex $result 3]
                 "test -x ../../.venv/bin/python",
                 f"test -f {q(checkpoint)}",
                 "test -d ../../data",
+                "test -d artifacts/tokenized",
                 f"{offline_prefix(self.remote_root)} ../../.venv/bin/python - <<'PY'",
                 "import os",
                 "for key in ('HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'HF_DATASETS_OFFLINE'):",
