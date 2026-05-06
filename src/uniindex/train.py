@@ -79,14 +79,17 @@ def _task_time_schedule(
     schedule_tables: dict,
     task: str,
 ) -> torch.Tensor:
+    image_time = config.train.image_time_power
     text_time = config.train.text_time_power
+    if task == "text_to_image" and config.train.text_to_image_image_time_power is not None:
+        image_time = config.train.text_to_image_image_time_power
     if task == "image_to_text" and config.train.image_to_text_text_time_power is not None:
         text_time = config.train.image_to_text_text_time_power
     return apply_schedule(
         progress=progress,
         modality_ids=modality_ids,
         schedule_tables=schedule_tables,
-        image_time_power=config.train.image_time_power,
+        image_time_power=image_time,
         text_time_power=text_time,
     )
 

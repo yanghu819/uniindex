@@ -1,0 +1,19 @@
+experiment_id: ac_joint_anchor_242_lowlr_500
+hypothesis: "More joint tasks should anchor the unified multimodal manifold and reduce pure t2i drift into a few digit attractors."
+code_sha: AUTO
+config: configs/flm_words_joint_long_rope_p8_ac_joint_anchor_242_lowlr_gpu80.yaml
+base_checkpoint: runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
+base_checkpoint_note: gen124 step 5000, current best generation baseline
+train_steps: 500
+reset_optimizer: true
+override_lr: 0.0001
+eval:
+  sampling_steps: 256
+  temperature: 0.7
+  max_samples: 512
+  bank_samples: 5000
+  decoded_repeats_per_label: 16
+acceptance:
+  i2t_exact_min: 0.80
+  collapse_labels: [9, 1, 7]
+next_step_basis: "If nearest-label mass spreads beyond 9/1/7 while i2t remains >=80%, this becomes the first scale-up candidate."

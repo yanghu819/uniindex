@@ -86,6 +86,7 @@ class TrainConfig:
     image_time_power: float = 1.0
     text_time_power: float = 1.0
     image_to_text_text_time_power: float | None = None
+    text_to_image_image_time_power: float | None = None
     text_sequence_weight: float = 0.0
 
 

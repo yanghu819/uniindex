@@ -39,9 +39,13 @@ def main() -> int:
     parser.add_argument("--train-image-to-text-text-time-power", type=float)
     parser.add_argument("--extra-steps", type=int, required=True)
     parser.add_argument("--out-dir", default="logs/experiments/stage2_continue")
+    parser.add_argument("--reset-optimizer", action="store_true")
+    parser.add_argument("--override-lr", type=float)
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.override_lr is not None:
+        config = replace(config, train=replace(config.train, lr=args.override_lr))
     if args.train_image_to_text_text_time_power is not None and args.checkpoint_config is None:
         raise ValueError(
             "--train-image-to-text-text-time-power changes the output checkpoint identity; "
@@ -121,8 +125,11 @@ def main() -> int:
         raise FileNotFoundError(f"missing stage2 checkpoint at {stage2_path}")
     payload = torch.load(stage2_path, map_location=device)
     model.load_state_dict(payload["model"])
-    if "optimizer" in payload:
+    if "optimizer" in payload and not args.reset_optimizer:
         optimizer.load_state_dict(payload["optimizer"])
+        if args.override_lr is not None:
+            for group in optimizer.param_groups:
+                group["lr"] = args.override_lr
     start_step = int(payload.get("step", 0))
 
     modality_ids = layout.position_modalities().to(device)
@@ -139,7 +146,11 @@ def main() -> int:
             "stage2_checkpoint": str(stage2_path),
             "start_step": start_step,
             "extra_steps": args.extra_steps,
+            "reset_optimizer": args.reset_optimizer,
+            "override_lr": args.override_lr,
+            "effective_lr": optimizer.param_groups[0]["lr"],
             "train_image_to_text_text_time_power": config.train.image_to_text_text_time_power,
+            "train_text_to_image_image_time_power": config.train.text_to_image_image_time_power,
         },
     )
 
