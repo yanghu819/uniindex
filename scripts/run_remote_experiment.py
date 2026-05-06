@@ -508,10 +508,11 @@ exit [lindex $result 3]
 
     def remote_checkout(self, experiment: Experiment) -> None:
         worktree = self.remote_worktree(experiment)
+        fetch_ref = self.args.remote_ref or current_branch()
         script = "\n".join(
             [
                 f"cd {q(self.remote_root)}",
-                "git fetch origin",
+                f"GIT_TERMINAL_PROMPT=0 timeout {int(self.args.git_fetch_timeout_sec)} git fetch origin {q(fetch_ref)}",
                 f"if [ -e {q(worktree)} ]; then echo {q('worktree already exists: ' + worktree)}; exit 7; fi",
                 f"git worktree add --detach {q(worktree)} {q(experiment.code_sha)}",
                 f"cd {q(worktree)}",
@@ -891,6 +892,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--aistation-timeout", type=int, default=60)
     parser.add_argument("--aistation-wait-sec", type=int, default=1800)
     parser.add_argument("--aistation-poll-sec", type=int, default=20)
+    parser.add_argument("--remote-ref", default=None, help="Remote git ref to fetch before detached checkout. Defaults to the local branch.")
+    parser.add_argument("--git-fetch-timeout-sec", type=int, default=300)
     parser.add_argument("--ssh-host", default=DEFAULT_SSH_HOST)
     parser.add_argument("--ssh-port", type=int, default=DEFAULT_SSH_PORT)
     parser.add_argument("--ssh-user", default=DEFAULT_SSH_USER)
