@@ -22,6 +22,11 @@ export PATH="$ROOT/.cache/uv-bin:$PATH"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
+PYTHON="$ROOT/.venv/bin/python"
+if [[ ! -x "$PYTHON" && -x "$ROOT/../../.venv/bin/python" ]]; then
+  PYTHON="$ROOT/../../.venv/bin/python"
+fi
+
 if ! command -v uv >/dev/null 2>&1; then
   export UV_UNMANAGED_INSTALL="$ROOT/.cache/uv-bin"
   curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -30,7 +35,7 @@ fi
 
 
 run_cli() {
-  "$ROOT/.venv/bin/python" -m uniindex.cli "$@"
+  "$PYTHON" -m uniindex.cli "$@"
 }
 
 

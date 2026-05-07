@@ -38,3 +38,6 @@ Text-to-image generation is still the active blocker. The full SigLIP-VQ guard
 confirmed that image-to-text understanding is real, while pixel-level
 generation remained broken. The next research step should improve unified
 generation without replacing the shared FLM backbone.
+
+`python unified.py acceptance` is expected to return a nonzero exit status until
+the clean generation gate is actually met.

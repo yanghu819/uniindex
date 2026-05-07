@@ -48,6 +48,36 @@ BEST_UNDERSTANDING_RESULT = {
 }
 
 
+BEST_GENERATION_RESULTS = {
+    "clean_minimal_extra_long": {
+        "code_sha": "7ff026bc1a939c2f7e5f377bb72b00012e4807f0",
+        "summary": (
+            "/fangxueji/Projects/PG/uniindex/worktrees/schedule-fix-layout-integ/"
+            "runs/minimal_unified_longer/20260428T094756Z-minimal-unified-gaussian-10000/summary.json"
+        ),
+        "i2t_exact_at_progress_0_5": 0.8671875,
+        "conditioned_token_label_accuracy": 0.07500000298023224,
+        "generated_unique_token_count": 769,
+        "generated_vs_real_hist_l1": 0.4066070318222046,
+        "passes_generation_gate": False,
+        "note": "Clean unified FLM scales i2t and token distribution, but text-conditioned t2i control is still chance-like.",
+    },
+    "label_control_probe_not_mainline": {
+        "code_sha": "deca613e21c0c522da2eb17b54d67e4fc804a892",
+        "conditioned_token_label_accuracy": 0.8999999761581421,
+        "passes_generation_gate": False,
+        "note": "Shows t2i can be forced, but it changes the endpoint objective and hurts the clean unified mainline.",
+    },
+}
+
+
+ACCEPTANCE = {
+    "understanding_i2t_exact_min": 0.85,
+    "semantic_hidden_probe_min": 0.90,
+    "generation_conditioned_token_label_min": 0.60,
+}
+
+
 MAIN_CONFIG_DATA: dict[str, Any] = {
     "project": {"name": "uniindex-main-siglipvq-semantic-token"},
     "paths": {
@@ -158,6 +188,35 @@ class Mainline:
     semantic_token_source: str = "vq_tokens"
     best_i2t_exact: float = BEST_UNDERSTANDING_RESULT["i2t_exact_at_progress_0_5"]
     best_semantic_probe: float = BEST_UNDERSTANDING_RESULT["semantic_hidden_label_probe"]
+
+
+def acceptance_report() -> dict[str, Any]:
+    understanding_pass = (
+        BEST_UNDERSTANDING_RESULT["i2t_exact_at_progress_0_5"] >= ACCEPTANCE["understanding_i2t_exact_min"]
+        and BEST_UNDERSTANDING_RESULT["semantic_hidden_label_probe"] >= ACCEPTANCE["semantic_hidden_probe_min"]
+    )
+    clean_generation = BEST_GENERATION_RESULTS["clean_minimal_extra_long"]
+    generation_pass = (
+        clean_generation["conditioned_token_label_accuracy"]
+        >= ACCEPTANCE["generation_conditioned_token_label_min"]
+    )
+    return {
+        "acceptance": ACCEPTANCE,
+        "understanding": {
+            "passed": understanding_pass,
+            "result": BEST_UNDERSTANDING_RESULT,
+        },
+        "generation": {
+            "passed": generation_pass,
+            "clean_result": clean_generation,
+            "non_mainline_probe": BEST_GENERATION_RESULTS["label_control_probe_not_mainline"],
+        },
+        "overall_passed": understanding_pass and generation_pass,
+        "conclusion": (
+            "Understanding is reproduced by the SigLIP-VQ semantic-token route; "
+            "clean text-to-image generation is still the open blocker."
+        ),
+    }
 
 
 def time_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
@@ -303,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Minimal SigLIP-VQ unified FLM mainline")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("about")
+    sub.add_parser("acceptance")
     config_p = sub.add_parser("config")
     config_p.add_argument("--out", default=str(MAIN_CONFIG))
     sub.add_parser("commands")
@@ -315,8 +375,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "about":
-        print_json({"mainline": asdict(Mainline()), "best_result": BEST_UNDERSTANDING_RESULT})
+        print_json(
+            {
+                "mainline": asdict(Mainline()),
+                "best_understanding": BEST_UNDERSTANDING_RESULT,
+                "best_generation": BEST_GENERATION_RESULTS,
+            }
+        )
         return 0
+    if args.cmd == "acceptance":
+        report = acceptance_report()
+        print_json(report)
+        return 0 if report["overall_passed"] else 1
     if args.cmd == "config":
         write_config(Path(args.out))
         print(Path(args.out))

@@ -48,6 +48,11 @@ export PATH="$ROOT/.cache/uv-bin:$PATH"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
+PYTHON="$ROOT/.venv/bin/python"
+if [[ ! -x "$PYTHON" && -x "$ROOT/../../.venv/bin/python" ]]; then
+  PYTHON="$ROOT/../../.venv/bin/python"
+fi
+
 if ! command -v uv >/dev/null 2>&1; then
   export UV_UNMANAGED_INSTALL="$ROOT/.cache/uv-bin"
   curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -56,16 +61,16 @@ fi
 
 mkdir -p "$ROOT/.cache" "$UV_PYTHON_INSTALL_DIR" "$PIP_CACHE_DIR" "$ROOT/data" "$ROOT/artifacts" "$ROOT/models" "$ROOT/runs" "$ROOT/logs"
 
-"$ROOT/.venv/bin/python" -m uniindex.cli prepare --config "$CONFIG"
+"$PYTHON" -m uniindex.cli prepare --config "$CONFIG"
 
 if [[ "$DOWNLOAD_I2T_LLM" == "1" ]]; then
-  "$ROOT/.venv/bin/python" -m uniindex.cli download-i2t-llm --config "$CONFIG"
+  "$PYTHON" -m uniindex.cli download-i2t-llm --config "$CONFIG"
 fi
 
 if [[ "$DOWNLOAD_SIGLIP_VQ" == "1" ]]; then
-  "$ROOT/.venv/bin/python" -m uniindex.cli download-siglip-vq --config "$CONFIG"
+  "$PYTHON" -m uniindex.cli download-siglip-vq --config "$CONFIG"
 fi
 
 if [[ "$DOWNLOAD_SIGLIP_VQ_DECODER" == "1" ]]; then
-  "$ROOT/.venv/bin/python" -m uniindex.cli download-siglip-vq-decoder --config "$CONFIG"
+  "$PYTHON" -m uniindex.cli download-siglip-vq-decoder --config "$CONFIG"
 fi

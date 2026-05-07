@@ -32,6 +32,16 @@ def test_best_understanding_result_is_the_siglip_vq_semantic_token_result():
     assert result["semantic_hidden_label_probe"] == 0.9609375
 
 
+def test_generation_gate_is_not_silently_marked_solved():
+    report = unified.acceptance_report()
+    assert report["understanding"]["passed"] is True
+    assert report["generation"]["passed"] is False
+    assert report["overall_passed"] is False
+    clean = report["generation"]["clean_result"]
+    assert clean["conditioned_token_label_accuracy"] < unified.ACCEPTANCE["generation_conditioned_token_label_min"]
+    assert clean["generated_unique_token_count"] == 769
+
+
 def test_write_config_roundtrip(tmp_path):
     out = tmp_path / "main.yaml"
     unified.write_config(out)

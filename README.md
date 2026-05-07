@@ -12,9 +12,10 @@ Current best understanding result:
 - best recorded i2t diagnostic: exact `0.8828125` at progress `0.5`
 - semantic hidden label probe: `0.9609375`
 
-Generation is still not solved. This main branch intentionally keeps the
-working understanding route simple and reproducible before adding more moving
-parts.
+Generation is still not solved in the clean mainline. The best clean long-run
+SigLIP-VQ FLM improves image-token diversity and reaches i2t exact `~0.87`, but
+text-conditioned t2i token-label accuracy is still chance-like. `unified.py
+acceptance` deliberately fails the generation gate instead of hiding this.
 
 ## Layout
 
@@ -32,6 +33,7 @@ parts.
 ```bash
 ./setup.sh
 python unified.py about
+python unified.py acceptance
 python unified.py config --out configs/main.yaml
 python unified.py commands
 python unified.py prepare
