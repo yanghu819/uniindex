@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="configs/default.yaml"
+CONFIG="configs/main.yaml"
 
 if [[ "${1:-}" == "--config" ]]; then
   CONFIG="$2"

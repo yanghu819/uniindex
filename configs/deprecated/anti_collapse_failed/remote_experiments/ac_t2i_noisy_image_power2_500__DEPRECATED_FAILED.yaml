@@ -1,7 +1,7 @@
-experiment_id: ac_joint_anchor_242_lowlr_500
-hypothesis: "More joint tasks should anchor the unified multimodal manifold and reduce pure t2i drift into a few digit attractors."
+experiment_id: ac_t2i_noisy_image_power2_500
+hypothesis: "Collapse may start in early denoising from high-noise image states; increasing the t2i image time-power during training may make text conditioning matter earlier."
 code_sha: AUTO
-config: configs/flm_words_joint_long_rope_p8_ac_joint_anchor_242_lowlr_gpu80.yaml
+config: configs/deprecated/anti_collapse_failed/flm_words_joint_long_rope_p8_ac_t2i_noisy_image_power2_gpu80__DEPRECATED_FAILED.yaml
 base_checkpoint: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/runs/20260506T033603Z-stage2-continue/checkpoints/stage2_step005000.pt
 base_checkpoint_note: gen124 step 5000, current best generation baseline
 shared_artifacts_dir: /fangxueji/Projects/PG/uniindex/worktrees/gpu-fd41e0b/artifacts
@@ -17,4 +17,4 @@ eval:
 acceptance:
   i2t_exact_min: 0.80
   collapse_labels: [9, 1, 7]
-next_step_basis: "If nearest-label mass spreads beyond 9/1/7 while i2t remains >=80%, this becomes the first scale-up candidate."
+next_step_basis: "If decoded images follow prompts better and nearest labels spread beyond 9/1/7, run a small power sweep next."

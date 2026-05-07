@@ -64,7 +64,7 @@ case "$MODE" in
     "$ROOT/.venv/bin/python" -m uniindex.cli ablate-compact --compact-config "$COMPACT_CONFIG" --full-config "$FULL_CONFIG"
     ;;
   stage1)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -79,7 +79,7 @@ case "$MODE" in
     "$ROOT/.venv/bin/python" -m uniindex.cli train --config "$CONFIG" --stage stage1
     ;;
   stage2)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -94,7 +94,7 @@ case "$MODE" in
     "$ROOT/.venv/bin/python" -m uniindex.cli train --config "$CONFIG" --stage stage2
     ;;
   eval)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -109,7 +109,7 @@ case "$MODE" in
     "$ROOT/.venv/bin/python" -m uniindex.cli eval --config "$CONFIG"
     ;;
   visualize)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
