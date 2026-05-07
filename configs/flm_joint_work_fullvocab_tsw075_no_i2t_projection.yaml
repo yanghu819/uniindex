@@ -54,7 +54,6 @@ train:
   save_every: 200
   joint_weight: 0.5
   text_weight: 1.0
-  text_sequence_weight: 0.75
   stage2_joint_repeats: 2
   stage2_text_to_image_repeats: 2
   stage2_image_to_text_repeats: 6
@@ -68,11 +67,6 @@ sampling:
   image_time_power: 1.0
   text_time_power: 0.25
   image_to_text_text_time_power: 4.0
-  integrator: legacy_progress_euler
-  final_decode: final_model_call
-  final_model_progress: 0.95
-  image_to_text_decoder: sample
-  image_to_text_projection: none
 
 schedule:
   kind: empirical

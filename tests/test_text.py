@@ -5,7 +5,6 @@ from uniindex.text import (
     decode_text_tokens,
     encode_labels,
     label_values_from_text_tokens,
-    sequence_candidate_scores,
     shifted_label_text_tokens,
     text_scoring_mask,
 )
@@ -65,16 +64,6 @@ def test_shifted_label_text_tokens_applies_offset():
     )
     shifted = shifted_label_text_tokens(metadata, token_offset=7)
     assert torch.equal(shifted, metadata.label_text_tokens + 7)
-
-
-def test_sequence_candidate_scores_prefers_matching_sequence():
-    logits = torch.full((1, 2, 5), -10.0)
-    logits[0, 0, 1] = 10.0
-    logits[0, 1, 2] = 10.0
-    candidate_tokens = torch.tensor([[1, 2], [3, 4]])
-    scores = sequence_candidate_scores(logits, candidate_tokens)
-    assert scores.shape == (1, 2)
-    assert scores[0, 0] > scores[0, 1]
 
 
 def test_decode_text_tokens_stops_at_eos_and_skips_bos():

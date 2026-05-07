@@ -12,7 +12,6 @@ from .eval import (
     _decode_image_tokens,
     _load_stage2,
     _sample_unified_with_logits,
-    constrained_text_label_values,
     sample_unified,
 )
 from .runtime import RunContext, ensure_project_dirs, resolve_device, set_seed
@@ -94,27 +93,13 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
         image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
         image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
-        integrator=config.sampling.integrator,
-        final_decode=config.sampling.final_decode,
-        final_model_progress=config.sampling.final_model_progress,
-        image_to_text_projection=config.sampling.image_to_text_projection,
-        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
-        image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
-        image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
-        image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
-        image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
-        text_metadata=text_metadata,
         condition_image_tokens=image_tokens,
         condition_text_tokens=None,
     )
     sampled_text = sampled_tokens[:, layout.text_slice] - layout.text_offset
     sampled_text_strings = decode_text_tokens(sampled_text, text_metadata)
     gt_text_strings = decode_text_tokens(text_tokens, text_metadata)
-    constrained_labels = constrained_text_label_values(
-        final_logits[:, layout.text_slice],
-        text_metadata,
-        codebook_size=layout.codebook_size,
-    )
+    del final_logits
 
     class_text_tokens = text_metadata.label_text_tokens.to(device)
     sampled_images = sample_unified(
@@ -129,16 +114,6 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
         image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
         image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
-        integrator=config.sampling.integrator,
-        final_decode=config.sampling.final_decode,
-        final_model_progress=config.sampling.final_model_progress,
-        image_to_text_projection=config.sampling.image_to_text_projection,
-        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
-        image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
-        image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
-        image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
-        image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
-        text_metadata=text_metadata,
         condition_image_tokens=None,
         condition_text_tokens=class_text_tokens,
     )[:, layout.image_slice]
@@ -157,16 +132,6 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
         image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
         image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
         image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
-        integrator=config.sampling.integrator,
-        final_decode=config.sampling.final_decode,
-        final_model_progress=config.sampling.final_model_progress,
-        image_to_text_projection=config.sampling.image_to_text_projection,
-        image_to_text_projection_progress=config.sampling.image_to_text_projection_progress,
-        image_to_text_projection_progresses=config.sampling.image_to_text_projection_progresses,
-        image_to_text_candidate_score_progress=config.sampling.image_to_text_candidate_score_progress,
-        image_to_text_candidate_score_num_noise=config.sampling.image_to_text_candidate_score_num_noise,
-        image_to_text_candidate_score_blend_weight=config.sampling.image_to_text_candidate_score_blend_weight,
-        text_metadata=text_metadata,
         batch_size=16,
         condition_image_tokens=None,
         condition_text_tokens=None,
@@ -180,11 +145,10 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     image_to_text_grid = _make_grid(
         images=[_tensor_to_pil(image) for image in decoded_real[:16]],
         captions=[
-            f"gt={gt}\nfree={pred}\ncls={label_to_string.get(int(label), str(int(label)))}"
-            for gt, pred, label in zip(
+            f"gt={gt}\nfree={pred}"
+            for gt, pred in zip(
                 gt_text_strings[:16],
                 sampled_text_strings[:16],
-                constrained_labels[:16].tolist(),
             )
         ],
         cols=4,
@@ -222,15 +186,12 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
             {
                 "gt": gt,
                 "pred": pred,
-                "constrained_label": label_to_string.get(int(label), str(int(label))),
             }
-            for gt, pred, label in zip(
+            for gt, pred in zip(
                 gt_text_strings[:16],
                 sampled_text_strings[:16],
-                constrained_labels[:16].tolist(),
             )
         ],
-        "image_to_text_batch_constrained_accuracy": float((constrained_labels == labels).float().mean().item()),
         "image_to_text_batch_position_accuracy": (
             sampled_text.eq(text_tokens).logical_and(score_mask).float().sum(dim=0)
             / score_mask.float().sum(dim=0).clamp_min(1.0)

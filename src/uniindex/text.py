@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 
 
 @dataclass(frozen=True)
@@ -167,29 +166,3 @@ def label_values_from_text_tokens(tokens: torch.Tensor, metadata: TextMetadata, 
 
 def shifted_label_text_tokens(metadata: TextMetadata, token_offset: int = 0) -> torch.Tensor:
     return metadata.label_text_tokens + int(token_offset)
-
-
-def sequence_candidate_scores(logits: torch.Tensor, candidate_tokens: torch.Tensor) -> torch.Tensor:
-    if logits.dim() != 3:
-        raise ValueError(f"expected logits with shape (batch, seq, vocab), got {tuple(logits.shape)}")
-    if candidate_tokens.dim() != 2:
-        raise ValueError(
-            f"expected candidate_tokens with shape (num_candidates, seq), got {tuple(candidate_tokens.shape)}"
-        )
-
-    batch, seq_len, vocab_size = logits.shape
-    num_candidates, candidate_seq_len = candidate_tokens.shape
-    if seq_len != candidate_seq_len:
-        raise ValueError(f"logit seq_len {seq_len} does not match candidate seq_len {candidate_seq_len}")
-
-    targets = candidate_tokens.to(logits.device, dtype=torch.long)
-    if torch.any(targets.lt(0)) or torch.any(targets.ge(vocab_size)):
-        raise ValueError("candidate token ids must stay within the logit vocabulary range")
-
-    log_probs = F.log_softmax(logits, dim=-1)
-    expanded_log_probs = log_probs.unsqueeze(1).expand(batch, num_candidates, seq_len, vocab_size)
-    gathered = expanded_log_probs.gather(
-        dim=-1,
-        index=targets.unsqueeze(0).unsqueeze(-1).expand(batch, num_candidates, seq_len, 1),
-    ).squeeze(-1)
-    return gathered.sum(dim=-1)

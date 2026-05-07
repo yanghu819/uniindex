@@ -20,6 +20,8 @@ def sinusoidal_time_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
 
 
 class UnifiedDenoiser(nn.Module):
+    """Clean shared FLM denoiser: one sequence, one backbone, one head."""
+
     def __init__(
         self,
         input_dim: int,
@@ -30,22 +32,10 @@ class UnifiedDenoiser(nn.Module):
         n_layers: int,
         mlp_ratio: int,
         dropout: float,
-        image_summary_to_text: bool = False,
-        image_semantic_tokens: int = 0,
-        image_semantic_source: str = "hidden",
-        image_vocab_size: int | None = None,
     ) -> None:
         super().__init__()
         self.seq_len = seq_len
         self.vocab_size = vocab_size
-        self.image_summary_to_text = bool(image_summary_to_text)
-        self.image_semantic_tokens = int(image_semantic_tokens)
-        if self.image_semantic_tokens < 0:
-            raise ValueError(f"image_semantic_tokens must be >= 0, got {image_semantic_tokens}")
-        self.image_semantic_source = str(image_semantic_source)
-        if self.image_semantic_source not in {"hidden", "vq_tokens"}:
-            raise ValueError(f"unsupported image_semantic_source: {self.image_semantic_source}")
-        self.image_vocab_size = None if image_vocab_size is None else int(image_vocab_size)
         self.input_proj = nn.Linear(input_dim, d_model)
         self.pos_embed = nn.Embedding(seq_len, d_model)
         self.modality_embed = nn.Embedding(2, d_model)
@@ -69,117 +59,12 @@ class UnifiedDenoiser(nn.Module):
             self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
         self.norm = nn.LayerNorm(d_model)
         self.head = nn.Linear(d_model, vocab_size)
-        if self.image_summary_to_text:
-            self.image_summary_proj = nn.Sequential(
-                nn.LayerNorm(d_model),
-                nn.Linear(d_model, d_model),
-                nn.GELU(),
-                nn.Linear(d_model, d_model),
-            )
-        else:
-            self.image_summary_proj = None
-        if self.image_semantic_tokens > 0:
-            if self.image_semantic_source == "vq_tokens" and self.image_vocab_size is None:
-                raise ValueError("image_semantic_source='vq_tokens' requires image_vocab_size")
-            self.image_semantic_token = nn.Parameter(torch.empty(1, self.image_semantic_tokens, d_model))
-            self.image_semantic_summary_proj = nn.Sequential(
-                nn.LayerNorm(d_model),
-                nn.Linear(d_model, d_model),
-                nn.GELU(),
-                nn.Linear(d_model, d_model),
-            )
-            if self.image_semantic_source == "vq_tokens":
-                self.image_semantic_code_embed = nn.Embedding(int(self.image_vocab_size), d_model)
-                self.image_semantic_pos_embed = nn.Embedding(seq_len, d_model)
-            else:
-                self.image_semantic_code_embed = None
-                self.image_semantic_pos_embed = None
-            nn.init.normal_(self.image_semantic_token, std=0.02)
-        else:
-            self.register_parameter("image_semantic_token", None)
-            self.image_semantic_summary_proj = None
-            self.image_semantic_code_embed = None
-            self.image_semantic_pos_embed = None
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
 
-    def _image_summary_gate(self, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
-        if t.dim() == 1:
-            clean = t
-            noisy = t
-        elif t.dim() == 2:
-            modality_ids = modality_ids.to(t.device)
-            image_mask = modality_ids.eq(0)
-            text_mask = modality_ids.eq(1)
-            if not bool(image_mask.any().item()) or not bool(text_mask.any().item()):
-                return torch.zeros(t.shape[0], device=t.device, dtype=t.dtype)
-            clean = t[:, image_mask].mean(dim=1)
-            noisy = t[:, text_mask].mean(dim=1)
-        else:
-            raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
-        return (clean.clamp(0.0, 1.0) * (1.0 - noisy.clamp(0.0, 1.0))).clamp(0.0, 1.0)
-
-    def _inject_image_summary_to_text(
-        self,
-        h: torch.Tensor,
-        t: torch.Tensor,
-        modality_ids: torch.Tensor,
-    ) -> torch.Tensor:
-        if self.image_summary_proj is None:
-            return h
-        modality_ids = modality_ids.to(h.device)
-        image_mask = modality_ids.eq(0)
-        text_mask = modality_ids.eq(1)
-        if not bool(image_mask.any().item()) or not bool(text_mask.any().item()):
-            return h
-        image_mask_float = image_mask.to(dtype=h.dtype, device=h.device).view(1, h.shape[1], 1)
-        image_count = image_mask_float.sum(dim=1).clamp_min(1.0)
-        image_summary = (h * image_mask_float).sum(dim=1) / image_count
-        summary_delta = self.image_summary_proj(image_summary)
-        gate = self._image_summary_gate(t, modality_ids).to(device=h.device, dtype=h.dtype)
-        text_mask_float = text_mask.to(dtype=h.dtype, device=h.device).view(1, h.shape[1], 1)
-        return h + text_mask_float * gate.view(-1, 1, 1) * summary_delta.unsqueeze(1)
-
-    def _append_image_semantic_tokens(
-        self,
-        h: torch.Tensor,
-        z_t: torch.Tensor,
-        t: torch.Tensor,
-        modality_ids: torch.Tensor,
-    ) -> torch.Tensor:
-        if self.image_semantic_summary_proj is None or self.image_semantic_token is None:
-            return h
-        modality_ids = modality_ids.to(h.device)
-        image_mask = modality_ids.eq(0)
-        if not bool(image_mask.any().item()):
-            return h
-        if self.image_semantic_source == "vq_tokens":
-            if self.image_semantic_code_embed is None or self.image_semantic_pos_embed is None:
-                raise ValueError("image_semantic_source='vq_tokens' is not initialized")
-            image_probs = z_t[:, image_mask, : int(self.image_vocab_size)].to(dtype=h.dtype)
-            code_embed = self.image_semantic_code_embed.weight.to(dtype=h.dtype)
-            image_hidden = image_probs @ code_embed
-            image_positions = torch.arange(self.seq_len, device=h.device)[image_mask]
-            image_hidden = image_hidden + self.image_semantic_pos_embed(image_positions).to(dtype=h.dtype).unsqueeze(0)
-            image_summary = image_hidden.mean(dim=1)
-        else:
-            image_mask_float = image_mask.to(dtype=h.dtype, device=h.device).view(1, self.seq_len, 1)
-            image_summary = (h[:, : self.seq_len] * image_mask_float).sum(dim=1) / image_mask_float.sum(dim=1).clamp_min(1.0)
-        semantic_delta = self.image_semantic_summary_proj(image_summary)
-        gate = self._image_summary_gate(t, modality_ids).to(device=h.device, dtype=h.dtype)
-        semantic_tokens = self.image_semantic_token.to(dtype=h.dtype).expand(h.shape[0], -1, -1)
-        semantic_tokens = gate.view(-1, 1, 1) * (semantic_tokens + semantic_delta.unsqueeze(1))
-        return torch.cat([h, semantic_tokens], dim=1)
-
-    def forward_features(
-        self,
-        z_t: torch.Tensor,
-        t: torch.Tensor,
-        modality_ids: torch.Tensor,
-        *,
-        include_extra_tokens: bool = False,
-    ) -> torch.Tensor:
+    def forward_features(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
         batch, seq_len, _ = z_t.shape
+        del batch
         if seq_len != self.seq_len:
             raise ValueError(f"expected sequence length {self.seq_len}, got {seq_len}")
         h = self.input_proj(z_t)
@@ -193,13 +78,8 @@ class UnifiedDenoiser(nn.Module):
             h = h + time_emb
         else:
             raise ValueError(f"expected t to have rank 1 or 2, got {t.dim()}")
-        h = self._inject_image_summary_to_text(h, t, modality_ids)
-        h = self._append_image_semantic_tokens(h, z_t, t, modality_ids)
         h = self.transformer(h)
-        h = self.norm(h)
-        if include_extra_tokens:
-            return h
-        return h[:, : self.seq_len]
+        return self.norm(h)
 
     def forward(self, z_t: torch.Tensor, t: torch.Tensor, modality_ids: torch.Tensor) -> torch.Tensor:
         return self.head(self.forward_features(z_t, t, modality_ids))

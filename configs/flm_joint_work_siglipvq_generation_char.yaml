@@ -1,12 +1,12 @@
 project:
-  name: uniindex-siglipvq-generation-labeltoken-probe-img512
+  name: uniindex-siglipvq-generation-char-img512
 
 paths:
   data_dir: data
-  artifacts_dir: artifacts/siglipvq_generation_labeltoken_probe_img512
-  models_dir: models/siglipvq_generation_labeltoken_probe_img512
-  runs_dir: runs/siglipvq_generation_labeltoken_probe_img512
-  logs_dir: logs/siglipvq_generation_labeltoken_probe_img512
+  artifacts_dir: artifacts/siglipvq_generation_char_img512
+  models_dir: models/siglipvq_generation_char_img512
+  runs_dir: runs/siglipvq_generation_char_img512
+  logs_dir: logs/siglipvq_generation_char_img512
   cache_dir: .cache
 
 tokenizer:
@@ -24,7 +24,7 @@ dataset:
   test_limit: 64
 
 text:
-  kind: label
+  kind: char
   pad_token: "<pad>"
 
 labels:
@@ -54,7 +54,6 @@ train:
   save_every: 100
   joint_weight: 0.5
   text_weight: 1.0
-  text_sequence_weight: 0.75
   stage2_joint_repeats: 2
   stage2_text_to_image_repeats: 2
   stage2_image_to_text_repeats: 6
@@ -68,12 +67,6 @@ sampling:
   image_time_power: 1.0
   text_time_power: 0.25
   image_to_text_text_time_power: 4.0
-  integrator: legacy_progress_euler
-  final_decode: final_model_call
-  final_model_progress: 0.95
-  image_to_text_decoder: sample
-  image_to_text_projection: none
-  image_to_text_projection_progress: 0.5
 
 schedule:
   kind: empirical
@@ -88,16 +81,3 @@ eval:
   classifier_lr: 0.001
   isolate_sampling_rng: true
   sampling_seed: 420700
-
-i2t_llm:
-  enabled: false
-  model_name: distilgpt2
-  cache_dir: .cache/huggingface
-  prefix_tokens: 8
-  adapter_hidden_dim: 512
-  source_checkpoint: null
-  train_steps: 200
-  lr: 0.0003
-  prompt: "Digit:"
-  feature_progress: 0.5
-  max_new_tokens: 4
