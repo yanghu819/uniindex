@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="configs/default.yaml"
+CONFIG="configs/main.yaml"
 DOWNLOAD_I2T_LLM=0
 DOWNLOAD_SIGLIP_VQ=0
 DOWNLOAD_SIGLIP_VQ_DECODER=0

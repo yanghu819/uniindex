@@ -36,7 +36,7 @@ run_cli() {
 
 case "$MODE" in
   prepare)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -86,7 +86,7 @@ case "$MODE" in
     run_cli ablate-compact --compact-config "$COMPACT_CONFIG" --full-config "$FULL_CONFIG"
     ;;
   stage1)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -101,7 +101,7 @@ case "$MODE" in
     run_cli train --config "$CONFIG" --stage stage1
     ;;
   stage2)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -116,7 +116,7 @@ case "$MODE" in
     run_cli train --config "$CONFIG" --stage stage2
     ;;
   eval)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -131,7 +131,7 @@ case "$MODE" in
     run_cli eval --config "$CONFIG"
     ;;
   diagnose-i2t)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -148,7 +148,7 @@ case "$MODE" in
     run_cli diagnose-i2t --config "$CONFIG" "${ARGS[@]}"
     ;;
   diagnose-i2t-image-dependence)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -165,7 +165,7 @@ case "$MODE" in
     run_cli diagnose-i2t-image-dependence --config "$CONFIG" "${ARGS[@]}"
     ;;
   diagnose-i2t-sampler-trajectory)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -182,7 +182,7 @@ case "$MODE" in
     run_cli diagnose-i2t-sampler-trajectory --config "$CONFIG" "${ARGS[@]}"
     ;;
   diagnose-i2t-understanding)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -199,7 +199,7 @@ case "$MODE" in
     run_cli diagnose-i2t-understanding --config "$CONFIG" "${ARGS[@]}"
     ;;
   probe-i2t-overfit)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -216,7 +216,7 @@ case "$MODE" in
     run_cli probe-i2t-overfit --config "$CONFIG" "${ARGS[@]}"
     ;;
   probe-i2t-sampler-state-ft)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -250,7 +250,7 @@ case "$MODE" in
     run_cli probe-i2t-llm-decoder --config "$CONFIG" "${ARGS[@]}"
     ;;
   probe-label-features)
-    CONFIG="configs/flm_joint_work_fullvocab_tsw075_label_feature_probe.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -284,7 +284,7 @@ case "$MODE" in
     run_cli probe-vq-text-decoder --config "$CONFIG" "${ARGS[@]}"
     ;;
   probe-siglipvq-reconstruction)
-    CONFIG="configs/flm_joint_work_siglipvq_generation_probe.yaml"
+    CONFIG="configs/main.yaml"
     ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -301,7 +301,7 @@ case "$MODE" in
     run_cli probe-siglipvq-reconstruction --config "$CONFIG" "${ARGS[@]}"
     ;;
   visualize)
-    CONFIG="configs/default.yaml"
+    CONFIG="configs/main.yaml"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --config)
@@ -314,6 +314,25 @@ case "$MODE" in
       esac
     done
     run_cli visualize --config "$CONFIG"
+    ;;
+  reproduce-best)
+    CONFIG="configs/main.yaml"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --config)
+          CONFIG="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    run_cli prepare --config "$CONFIG"
+    run_cli train --config "$CONFIG" --stage stage1
+    run_cli train --config "$CONFIG" --stage stage2
+    run_cli diagnose-i2t --config "$CONFIG" --progress 0.5 --progress 0.9 --progress 0.95
+    run_cli probe-label-features --config "$CONFIG" --steps 200 --eval-every 100
     ;;
   sweep-i2t-power)
     run_cli sweep-i2t-power "$@"

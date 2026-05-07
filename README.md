@@ -1,23 +1,29 @@
 # uniindex
 
-`uniindex` is a toy implementation of a unified-index multimodal model:
+The mainline is now the minimal SigLIP-VQ unified FLM reproduction in
+`unified.py`.
 
-- vision uses a frozen `BAAI/Emu3.5-VisionTokenizer`
-- labels use one learned token per MNIST class
-- one Transformer denoiser models the full unified sequence
-- training runs in two stages:
-  - `stage1`: joint denoising over image tokens plus label token
-  - `stage2`: mixed replay with `joint`, `label->image`, and `image->label`
+Current best understanding result:
 
-The repository is designed for single-GPU execution with all caches and outputs kept inside the repo root.
+- tokenizer: `inclusionAI/LLaDA2.0-Uni` SigLIP-VQ image tokens
+- model: one shared bidirectional Transformer denoiser, one shared output head
+- text: one label token per class
+- key change: one image semantic token sourced from clean VQ-token distributions
+- best recorded i2t diagnostic: exact `0.8828125` at progress `0.5`
+- semantic hidden label probe: `0.9609375`
+
+Generation is still not solved. This main branch intentionally keeps the
+working understanding route simple and reproducible before adding more moving
+parts.
 
 ## Layout
 
+- `unified.py`: single-file mainline and reproduction contract
+- `configs/main.yaml`: generated mainline config
 - `setup.sh`: create the `uv` environment and install pinned dependencies
 - `down.sh`: download and prepare datasets, tokenizer assets, and the evaluation classifier
-- `run.sh`: canonical entrypoint for `prepare`, `smoke`, `stage1`, `stage2`, `eval`, `visualize`, and `sweep-i2t-power`
-- `src/uniindex/`: Python package
-- `configs/default.yaml`: main config for the A100 path
+- `run.sh`: compatibility wrapper around the older package CLI
+- `src/uniindex/`: historical implementation modules used by `unified.py`
 - `configs/smoke.yaml`: tiny local config with a dummy tokenizer for fast checks
 - `docs/active_baseline.md`: active branch, baseline config, and current best result
 
@@ -25,18 +31,19 @@ The repository is designed for single-GPU execution with all caches and outputs 
 
 ```bash
 ./setup.sh
-./down.sh --config configs/default.yaml
-./run.sh prepare --config configs/flm_joint_work_fullvocab_tsw075.yaml
-./run.sh smoke
-./run.sh stage1
-./run.sh stage2
-./run.sh eval
-./run.sh sweep-i2t-power
+python unified.py about
+python unified.py config --out configs/main.yaml
+python unified.py commands
+python unified.py prepare
+python unified.py train --stage stage1
+python unified.py train --stage stage2
+python unified.py diagnose
+python unified.py probe
 ```
 
 ## Notes
 
-- The default config uses the official Emu3.5 VisionTokenizer via `transformers` remote code.
-- The smoke config swaps in a tiny deterministic dummy tokenizer so local validation does not depend on a large model download.
+- The main config uses SigLIP-VQ assets cached under repo-local `.cache/`.
+- The smoke config swaps in a tiny deterministic dummy tokenizer for fast local validation.
 - All runtime metadata is written under `runs/<run_id>/metadata.json`.
-- `run.sh` pins `PYTHONPATH` to the local `src/` tree so detached worktrees do not accidentally import another editable install.
+- `run.sh` and `unified.py` pin `PYTHONPATH` to the local `src/` tree so detached worktrees do not accidentally import another editable install.
