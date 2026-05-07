@@ -11,7 +11,7 @@ from .runtime import RunContext, ensure_project_dirs
 from .siglipvq_reconstruction import probe_siglipvq_reconstruction
 from .tokenizer import download_siglip_vq_assets, download_siglip_vq_decoder_assets
 from .train import train_stage
-from .visualize import export_visualizations
+from .visualize import export_text_to_image_grid, export_visualizations
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,6 +30,12 @@ def _parser() -> argparse.ArgumentParser:
 
     visualize = subparsers.add_parser("visualize")
     visualize.add_argument("--config", required=True)
+
+    quick_visualize = subparsers.add_parser("quick-visualize")
+    quick_visualize.add_argument("--config", required=True)
+    quick_visualize.add_argument("--seeds-per-label", type=int, default=1)
+    quick_visualize.add_argument("--steps", type=int, default=None)
+    quick_visualize.add_argument("--temperature", type=float, default=None)
 
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--config", required=True)
@@ -84,6 +90,18 @@ def _run_visualize(config_path: str) -> int:
     config = load_config(config_path)
     ensure_project_dirs(config)
     export_visualizations(config)
+    return 0
+
+
+def _run_quick_visualize(config_path: str, seeds_per_label: int, steps: int | None, temperature: float | None) -> int:
+    config = load_config(config_path)
+    ensure_project_dirs(config)
+    export_text_to_image_grid(
+        config,
+        seeds_per_label=seeds_per_label,
+        steps=steps,
+        temperature=temperature,
+    )
     return 0
 
 
@@ -153,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_eval(args.config)
     if args.command == "visualize":
         return _run_visualize(args.config)
+    if args.command == "quick-visualize":
+        return _run_quick_visualize(args.config, args.seeds_per_label, args.steps, args.temperature)
     if args.command == "smoke":
         return _run_smoke(args.config)
     if args.command == "ablate-compact":

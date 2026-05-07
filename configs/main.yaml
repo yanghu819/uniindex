@@ -61,14 +61,14 @@ train:
   stage2_text_to_image_repeats: 2
   stage2_image_to_text_repeats: 10
   image_time_power: 1.0
-  text_time_power: 0.25
-  image_to_text_text_time_power: 4.0
+  text_time_power: 1.0
+  image_to_text_text_time_power: null
 sampling:
   steps: 32
   temperature: 0.7
   image_time_power: 1.0
-  text_time_power: 0.25
-  image_to_text_text_time_power: 4.0
+  text_time_power: 1.0
+  image_to_text_text_time_power: null
 schedule:
   kind: empirical
   num_points: 33

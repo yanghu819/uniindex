@@ -35,7 +35,11 @@ def test_load_main_config_is_siglip_vq_label_text():
     assert config.text.kind == "label"
     assert config.dataset.name == "mnist"
     assert config.train.stage2_image_to_text_repeats == 10
+    assert config.train.text_time_power == 1.0
+    assert config.train.image_to_text_text_time_power is None
     assert config.sampling.steps == 32
+    assert config.sampling.text_time_power == 1.0
+    assert config.sampling.image_to_text_text_time_power is None
 
 
 def test_load_understanding_config_keeps_i2t_time_override():

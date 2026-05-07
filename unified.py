@@ -113,15 +113,15 @@ MAIN_CONFIG_DATA: dict[str, Any] = {
         "stage2_text_to_image_repeats": 2,
         "stage2_image_to_text_repeats": 10,
         "image_time_power": 1.0,
-        "text_time_power": 0.25,
-        "image_to_text_text_time_power": 4.0,
+        "text_time_power": 1.0,
+        "image_to_text_text_time_power": None,
     },
     "sampling": {
         "steps": 32,
         "temperature": 0.7,
         "image_time_power": 1.0,
-        "text_time_power": 0.25,
-        "image_to_text_text_time_power": 4.0,
+        "text_time_power": 1.0,
+        "image_to_text_text_time_power": None,
     },
     "schedule": {"kind": "empirical", "num_points": 33, "num_samples": 4096, "min_t": 0.0},
     "eval": {
@@ -266,8 +266,8 @@ def reproduce_commands(config: Path = MAIN_CONFIG) -> list[list[str]]:
         [py, "-m", "uniindex.cli", "train", "--config", cfg, "--stage", "stage1"],
         [py, "-m", "uniindex.cli", "train", "--config", cfg, "--stage", "stage2"],
         [py, "-m", "uniindex.cli", "eval", "--config", cfg],
+        [py, "-m", "uniindex.cli", "quick-visualize", "--config", cfg],
         [py, "-m", "uniindex.cli", "visualize", "--config", cfg],
-        [py, "-m", "uniindex.cli", "probe-siglipvq-reconstruction", "--config", cfg, "--sample-count", "16"],
     ]
 
 
@@ -287,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     train_p = sub.add_parser("train")
     train_p.add_argument("--stage", choices=["stage1", "stage2"], required=True)
     sub.add_parser("eval")
+    sub.add_parser("quick-visualize")
     sub.add_parser("visualize")
     args = parser.parse_args(argv)
 
@@ -317,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_uniindex(["train", "--config", str(MAIN_CONFIG), "--stage", args.stage])
     if args.cmd == "eval":
         return run_uniindex(["eval", "--config", str(MAIN_CONFIG)])
+    if args.cmd == "quick-visualize":
+        return run_uniindex(["quick-visualize", "--config", str(MAIN_CONFIG)])
     if args.cmd == "visualize":
         return run_uniindex(["visualize", "--config", str(MAIN_CONFIG)])
     raise AssertionError(args.cmd)

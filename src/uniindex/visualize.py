@@ -49,6 +49,83 @@ def _make_grid(images: list[Image.Image], captions: list[str], cols: int, cell_s
 
 
 @torch.inference_mode()
+def export_text_to_image_grid(
+    config: ProjectConfig,
+    run_context: RunContext | None = None,
+    *,
+    seeds_per_label: int = 1,
+    steps: int | None = None,
+    temperature: float | None = None,
+) -> dict[str, str]:
+    if seeds_per_label < 1:
+        raise ValueError(f"seeds_per_label must be >= 1, got {seeds_per_label}")
+    ensure_project_dirs(config)
+    set_seed(config.train.seed)
+    device = resolve_device(config.train.device, config.train.gpu_index)
+    own_context = run_context is None
+    run_context = run_context or RunContext(config, "quick-visualize")
+    run_context.set_device(device)
+
+    model, tokenizer_state, layout = _load_stage2(config, device)
+    text_metadata = metadata_from_state(tokenizer_state)
+    schedule_tables = build_schedule_tables(
+        config,
+        image_vocab_size=layout.codebook_size,
+        text_vocab_size=layout.text_vocab_size,
+    )
+    grid_shape = tuple(tokenizer_state["grid_shape"])
+    tokenizer = build_tokenizer(config, device=device)
+
+    label_tokens = text_metadata.label_text_tokens.to(device)
+    condition_text_tokens = label_tokens.repeat_interleave(seeds_per_label, dim=0)
+    prompts = [
+        label
+        for label in text_metadata.label_strings
+        for _ in range(seeds_per_label)
+    ]
+    sampled = sample_unified(
+        model=model,
+        layout=layout,
+        schedule_tables=schedule_tables,
+        temperature=config.sampling.temperature if temperature is None else float(temperature),
+        steps=config.sampling.steps if steps is None else int(steps),
+        image_time_power=config.sampling.image_time_power,
+        text_time_power=config.sampling.text_time_power,
+        image_to_text_text_time_power=config.sampling.image_to_text_text_time_power,
+        image_to_text_text_time_schedule=config.sampling.image_to_text_text_time_schedule,
+        image_to_text_logit_normal_loc=config.sampling.image_to_text_logit_normal_loc,
+        image_to_text_logit_normal_scale=config.sampling.image_to_text_logit_normal_scale,
+        condition_image_tokens=None,
+        condition_text_tokens=condition_text_tokens,
+    )[:, layout.image_slice]
+    decoded = _decode_image_tokens(tokenizer, sampled, tokenizer_state, grid_shape, device)
+
+    captions = [f"prompt={prompt}" for prompt in prompts]
+    grid = _make_grid(
+        images=[_tensor_to_pil(image) for image in decoded],
+        captions=captions,
+        cols=max(1, min(10, len(text_metadata.label_strings))),
+    )
+    grid_path = run_context.log_path("visuals/text_to_image_prompt_grid.png")
+    grid.save(grid_path)
+
+    summary = {
+        "text_to_image_prompt_grid": str(grid_path),
+        "seeds_per_label": int(seeds_per_label),
+        "sampling_steps": int(config.sampling.steps if steps is None else steps),
+        "temperature": float(config.sampling.temperature if temperature is None else temperature),
+        "prompts": prompts,
+    }
+    summary_path = run_context.log_path("visuals/quick_summary.json")
+    with summary_path.open("w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+    if own_context:
+        run_context.update_status("ok")
+    return {key: value for key, value in summary.items() if isinstance(value, str)}
+
+
+@torch.inference_mode()
 def export_visualizations(config: ProjectConfig, run_context: RunContext | None = None) -> dict[str, str]:
     ensure_project_dirs(config)
     set_seed(config.train.seed)
@@ -78,7 +155,6 @@ def export_visualizations(config: ProjectConfig, run_context: RunContext | None 
     batch = next(iter(test_loader))
     image_tokens = batch["image_tokens"].to(device)
     text_tokens = batch["text_tokens"].to(device)
-    labels = batch["label"].to(device)
     decoded_real = _decode_image_tokens(tokenizer, image_tokens, tokenizer_state, grid_shape, device)
 
     sampled_tokens, final_logits = _sample_unified_with_logits(

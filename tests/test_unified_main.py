@@ -18,6 +18,10 @@ def test_mainline_is_siglip_vq_not_emu_or_qwen():
     assert config["tokenizer"]["kind"] == "siglip_vq"
     assert config["tokenizer"]["model_name"] == "inclusionAI/LLaDA2.0-Uni"
     assert config["text"]["kind"] == "label"
+    assert config["train"]["text_time_power"] == 1.0
+    assert config["train"]["image_to_text_text_time_power"] is None
+    assert config["sampling"]["text_time_power"] == 1.0
+    assert config["sampling"]["image_to_text_text_time_power"] is None
     assert "image_" + "summary_to_text" not in config["model"]
     assert "image_extra_tokens" not in config["model"]
     dumped = yaml.safe_dump(config).lower()
@@ -78,7 +82,9 @@ def test_reproduce_commands_are_single_mainline():
     assert any("train --config configs/main.yaml --stage stage1" in command for command in commands)
     assert any("train --config configs/main.yaml --stage stage2" in command for command in commands)
     assert any("eval --config configs/main.yaml" in command for command in commands)
+    assert any("quick-visualize --config configs/main.yaml" in command for command in commands)
     assert any("visualize --config configs/main.yaml" in command for command in commands)
+    assert not any("probe" in command.lower() for command in commands)
     assert not any("qwen" in command.lower() or "emu3" in command.lower() for command in commands)
 
 
