@@ -36,6 +36,7 @@ _DIGIT_WORDS = (
 @dataclass
 class OracleRunConfig:
     model_name: str
+    revision: str | None
     output_dir: str
     cache_dir: str
     prompts: list[str]
@@ -56,6 +57,7 @@ class OracleRunConfig:
     local_files_only: bool
     trust_remote_code: bool
     device_map: str | None
+    download_workers: int
     seed: int
     skip_decode: bool
 
@@ -128,24 +130,32 @@ def _dtype_from_name(name: str) -> torch.dtype:
 
 def _load_official_model(config: OracleRunConfig):
     from transformers import AutoModel, AutoTokenizer
+    from huggingface_hub import snapshot_download
 
     hf_cache_dir = str(Path(config.cache_dir) / "huggingface")
+    model_source = snapshot_download(
+        repo_id=config.model_name,
+        revision=config.revision,
+        cache_dir=hf_cache_dir,
+        local_files_only=config.local_files_only,
+        max_workers=max(1, int(config.download_workers)),
+    )
     load_kwargs: dict[str, Any] = {
         "trust_remote_code": config.trust_remote_code,
         "torch_dtype": _dtype_from_name(config.dtype),
-        "local_files_only": config.local_files_only,
+        "local_files_only": True,
         "cache_dir": hf_cache_dir,
     }
     if config.device_map:
         load_kwargs["device_map"] = config.device_map
-    model = AutoModel.from_pretrained(config.model_name, **load_kwargs)
+    model = AutoModel.from_pretrained(model_source, **load_kwargs)
     if not config.device_map:
         model = model.to(config.device)
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(
-        config.model_name,
+        model_source,
         trust_remote_code=config.trust_remote_code,
-        local_files_only=config.local_files_only,
+        local_files_only=True,
         cache_dir=hf_cache_dir,
     )
     return model, tokenizer
@@ -283,6 +293,7 @@ def run_oracle(config: OracleRunConfig) -> dict[str, Any]:
 def _parse_args() -> OracleRunConfig:
     parser = argparse.ArgumentParser(description="Run the official LLaDA-Uni image-generation oracle.")
     parser.add_argument("--model-name", default=LLADA2_UNI_REPO_ID)
+    parser.add_argument("--revision", default=None)
     parser.add_argument("--output-dir", default="output/llada_uni_oracle")
     parser.add_argument("--cache-dir", default=".cache")
     parser.add_argument("--prompt", action="append", default=None)
@@ -307,6 +318,7 @@ def _parse_args() -> OracleRunConfig:
     parser.add_argument("--no-trust-remote-code", dest="trust_remote_code", action="store_false")
     parser.set_defaults(trust_remote_code=True)
     parser.add_argument("--device-map", default=None)
+    parser.add_argument("--download-workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=45)
     parser.add_argument("--skip-decode", action="store_true")
     args = parser.parse_args()
@@ -319,6 +331,7 @@ def _parse_args() -> OracleRunConfig:
     local_files_only = bool(args.local_files_only) and not bool(args.allow_download)
     return OracleRunConfig(
         model_name=args.model_name,
+        revision=args.revision,
         output_dir=args.output_dir,
         cache_dir=args.cache_dir,
         prompts=prompts,
@@ -339,6 +352,7 @@ def _parse_args() -> OracleRunConfig:
         local_files_only=local_files_only,
         trust_remote_code=bool(args.trust_remote_code),
         device_map=args.device_map,
+        download_workers=max(1, int(args.download_workers)),
         seed=args.seed,
         skip_decode=bool(args.skip_decode),
     )

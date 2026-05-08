@@ -53,11 +53,18 @@ def test_official_model_loader_uses_repo_local_cache(monkeypatch, tmp_path):
             return object()
 
     import transformers
+    import huggingface_hub
+
+    def fake_snapshot_download(**kwargs):
+        calls["snapshot"] = kwargs
+        return str(tmp_path / "snapshot")
 
     monkeypatch.setattr(transformers, "AutoModel", FakeAutoModel)
     monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
     config = OracleRunConfig(
         model_name="inclusionAI/LLaDA2.0-Uni",
+        revision="abc123",
         output_dir=str(tmp_path / "out"),
         cache_dir=str(tmp_path / ".cache"),
         prompts=["zero"],
@@ -78,6 +85,7 @@ def test_official_model_loader_uses_repo_local_cache(monkeypatch, tmp_path):
         local_files_only=True,
         trust_remote_code=True,
         device_map=None,
+        download_workers=1,
         seed=45,
         skip_decode=False,
     )
@@ -85,6 +93,13 @@ def test_official_model_loader_uses_repo_local_cache(monkeypatch, tmp_path):
     _load_official_model(config)
 
     expected_cache = str(tmp_path / ".cache" / "huggingface")
+    assert calls["snapshot"]["repo_id"] == "inclusionAI/LLaDA2.0-Uni"
+    assert calls["snapshot"]["revision"] == "abc123"
+    assert calls["snapshot"]["cache_dir"] == expected_cache
+    assert calls["snapshot"]["max_workers"] == 1
+    assert calls["model"][0] == str(tmp_path / "snapshot")
     assert calls["model"][1]["cache_dir"] == expected_cache
+    assert calls["model"][1]["local_files_only"] is True
     assert calls["tokenizer"][1]["cache_dir"] == expected_cache
+    assert calls["tokenizer"][1]["local_files_only"] is True
     assert calls["model_device"] == "cpu"
