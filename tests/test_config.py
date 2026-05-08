@@ -58,6 +58,23 @@ def test_load_bridge_emu3p5_gen124_clean_config():
     assert config.sampling.steps == 256
 
 
+def test_load_bridge_siglipvq_tokenizer_only_clean_config():
+    config = load_config("configs/bridge_siglipvq_tokenizer_only_clean.yaml")
+    assert config.tokenizer.kind == "siglip_vq"
+    assert config.tokenizer.model_name == "inclusionAI/LLaDA2.0-Uni"
+    assert config.tokenizer.image_size == 256
+    assert config.tokenizer.compact_vocab is True
+    assert config.dataset.train_limit == 30000
+    assert config.text.kind == "char"
+    assert config.model.position_encoding == "rope"
+    assert config.train.stage2_joint_repeats == 1
+    assert config.train.stage2_text_to_image_repeats == 2
+    assert config.train.stage2_image_to_text_repeats == 4
+    assert config.train.text_time_power == 0.25
+    assert config.train.image_to_text_text_time_power == 8.0
+    assert config.sampling.steps == 256
+
+
 def test_load_understanding_config_keeps_i2t_time_override():
     config = load_config("configs/flm_understanding.yaml")
     assert config.train.image_to_text_text_time_power == 4.0
