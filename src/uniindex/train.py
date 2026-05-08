@@ -203,6 +203,7 @@ def train_stage(config: ProjectConfig, stage: str, run_context: RunContext | Non
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
+        position_encoding=config.model.position_encoding,
     ).to(device)
     if stage == "stage2":
         init_path = _stage2_init_checkpoint_path(config)

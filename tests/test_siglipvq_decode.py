@@ -10,6 +10,7 @@ from uniindex.tokenizer import (
     SiglipVQVisionTokenizer,
     download_siglip_vq_decoder_assets,
     _install_diffusers_attention_dispatch_compat,
+    _resolve_local_model_source,
 )
 
 
@@ -70,6 +71,27 @@ def test_decoder_asset_download_extends_encoder_assets(monkeypatch, tmp_path):
     assert set(LLADA2_UNI_IMAGE_TOKENIZER_FILES).issubset(set(captured["download"][2]))
     assert "decoder-turbo/decoder_model.safetensors" in captured["download"][2]
     assert "vae/diffusion_pytorch_model.safetensors" in captured["download"][2]
+
+
+def test_local_model_source_resolves_huggingface_snapshot(tmp_path):
+    cache_root = tmp_path / ".cache" / "huggingface" / "hub"
+    repo_cache = cache_root / "models--BAAI--Emu3.5-VisionTokenizer"
+    snapshot = repo_cache / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "model.safetensors").write_text("weights", encoding="utf-8")
+    refs = repo_cache / "refs"
+    refs.mkdir()
+    (refs / "main").write_text("abc123", encoding="utf-8")
+
+    source, resolved_cache = _resolve_local_model_source(
+        "BAAI/Emu3.5-VisionTokenizer",
+        tmp_path / ".cache",
+        tmp_path,
+    )
+
+    assert source == str(snapshot)
+    assert resolved_cache == str(cache_root)
 
 
 def test_diffusers_attention_dispatch_compat_drops_parallel_config(monkeypatch):

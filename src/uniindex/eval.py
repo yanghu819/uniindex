@@ -48,6 +48,7 @@ def _load_stage2(config: ProjectConfig, device: torch.device) -> tuple[UnifiedDe
         n_layers=config.model.n_layers,
         mlp_ratio=config.model.mlp_ratio,
         dropout=config.model.dropout,
+        position_encoding=config.model.position_encoding,
     ).to(device)
     model.load_state_dict(payload["model"])
     model.eval()

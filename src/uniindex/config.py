@@ -59,6 +59,7 @@ class ModelConfig:
     n_layers: int
     mlp_ratio: int
     dropout: float
+    position_encoding: str = "learned"
 
 
 @dataclass(frozen=True)
@@ -222,6 +223,14 @@ def _normalize_schedule_config(raw: dict[str, Any]) -> dict[str, Any]:
     return _filter_for(ScheduleConfig, dict(raw.get("schedule", {})))
 
 
+def _normalize_model_config(raw_model: dict[str, Any]) -> dict[str, Any]:
+    normalized = _filter_for(ModelConfig, dict(raw_model))
+    normalized.setdefault("position_encoding", "learned")
+    if normalized["position_encoding"] not in {"learned", "rope"}:
+        raise ValueError(f"unsupported position_encoding: {normalized['position_encoding']}")
+    return normalized
+
+
 def load_config(path: str | Path) -> ProjectConfig:
     config_path = Path(path).resolve()
     with config_path.open("r", encoding="utf-8") as handle:
@@ -244,7 +253,7 @@ def load_config(path: str | Path) -> ProjectConfig:
         dataset=DatasetConfig(**_filter_for(DatasetConfig, raw["dataset"])),
         text=TextConfig(**_normalize_text_config(raw)),
         labels=LabelsConfig(**raw["labels"]),
-        model=ModelConfig(**_filter_for(ModelConfig, raw["model"])),
+        model=ModelConfig(**_normalize_model_config(raw["model"])),
         train=TrainConfig(**_normalize_train_config(raw["train"])),
         sampling=SamplingConfig(**_normalize_sampling_config(raw["sampling"])),
         schedule=ScheduleConfig(**_normalize_schedule_config(raw)),
