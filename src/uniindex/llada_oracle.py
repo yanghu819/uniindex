@@ -129,10 +129,12 @@ def _dtype_from_name(name: str) -> torch.dtype:
 def _load_official_model(config: OracleRunConfig):
     from transformers import AutoModel, AutoTokenizer
 
+    hf_cache_dir = str(Path(config.cache_dir) / "huggingface")
     load_kwargs: dict[str, Any] = {
         "trust_remote_code": config.trust_remote_code,
         "torch_dtype": _dtype_from_name(config.dtype),
         "local_files_only": config.local_files_only,
+        "cache_dir": hf_cache_dir,
     }
     if config.device_map:
         load_kwargs["device_map"] = config.device_map
@@ -144,6 +146,7 @@ def _load_official_model(config: OracleRunConfig):
         config.model_name,
         trust_remote_code=config.trust_remote_code,
         local_files_only=config.local_files_only,
+        cache_dir=hf_cache_dir,
     )
     return model, tokenizer
 
